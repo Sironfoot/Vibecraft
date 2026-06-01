@@ -246,6 +246,77 @@ function playJumpSound() {
   osc.stop(now + dur);
 }
 
+function startCreeperSizzle(c) {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const bufLen = audioCtx.sampleRate * 2;
+  const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < bufLen; i++) {
+    d[i] = Math.random() * 2 - 1;
+  }
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  src.loop = true;
+  const flt = audioCtx.createBiquadFilter();
+  flt.type = 'highpass';
+  flt.frequency.value = 2000;
+  c._sizzleGain = audioCtx.createGain();
+  c._sizzleGain.gain.setValueAtTime(0.06, now);
+  src.connect(flt).connect(c._sizzleGain).connect(audioCtx.destination);
+  src.start(now);
+  c._sizzleSrc = src;
+}
+
+function updateCreeperSizzle(c) {
+  if (!c._sizzleGain || !audioCtx) return;
+  const elapsed = 1.5 - c.explodeTimer;
+  const progress = elapsed / 1.5;
+  c._sizzleGain.gain.linearRampToValueAtTime(0.06 + progress * 0.2, audioCtx.currentTime + 0.05);
+}
+
+function stopCreeperSizzle(c) {
+  if (c._sizzleSrc) {
+    try { c._sizzleSrc.stop(); } catch(e) {}
+    c._sizzleSrc = null;
+  }
+  c._sizzleGain = null;
+}
+
+function playExplosion() {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const dur = 0.6;
+  const bufLen = audioCtx.sampleRate * dur;
+  const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < bufLen; i++) {
+    const t = i / audioCtx.sampleRate;
+    const env = Math.exp(-t * 6) * (1 + 0.4 * Math.sin(t * 30));
+    d[i] = (Math.random() * 2 - 1) * env;
+  }
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  const flt = audioCtx.createBiquadFilter();
+  flt.type = 'lowpass';
+  flt.frequency.setValueAtTime(4000, now);
+  flt.frequency.exponentialRampToValueAtTime(80, now + dur);
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0.35, now);
+  src.connect(flt).connect(gain).connect(audioCtx.destination);
+  src.start(now);
+  const osc = audioCtx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(80, now);
+  osc.frequency.exponentialRampToValueAtTime(25, now + dur * 0.6);
+  const g2 = audioCtx.createGain();
+  g2.gain.setValueAtTime(0.3, now);
+  g2.gain.exponentialRampToValueAtTime(0.001, now + dur * 0.6);
+  osc.connect(g2).connect(audioCtx.destination);
+  osc.start(now);
+  osc.stop(now + dur);
+}
+
 function playFootstep(blockType) {
   const cat = getFootstepCategory(blockType);
   if (cat === 'grass') playGrassFootstep();
@@ -919,6 +990,7 @@ function updateCreeper(c, dt) {
 
   if (c.state === 'explode') {
     c.explodeTimer -= dt;
+    updateCreeperSizzle(c);
     if (c.explodeTimer <= 0) {
       creeperExplode(c);
       return false;
@@ -991,6 +1063,7 @@ function updateCreeper(c, dt) {
     c.vy = 0;
     c.vx = 0;
     c.vz = 0;
+    startCreeperSizzle(c);
   }
 
   if (c.y < -10) {
@@ -1011,6 +1084,8 @@ function creeperCollides(px, py, pz, hw, ph) {
 }
 
 function creeperExplode(c) {
+  stopCreeperSizzle(c);
+  playExplosion();
   const RADIUS = 3.5;
   for (let bx = floor(c.x - RADIUS); bx <= floor(c.x + RADIUS); bx++) {
     for (let by = floor(c.y - RADIUS); by <= floor(c.y + RADIUS); by++) {
