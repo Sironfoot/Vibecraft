@@ -272,7 +272,10 @@ function updateCreeperSizzle(c) {
   if (!c._sizzleGain || !audioCtx) return;
   const elapsed = 1.5 - c.explodeTimer;
   const progress = elapsed / 1.5;
-  c._sizzleGain.gain.linearRampToValueAtTime(0.06 + progress * 0.2, audioCtx.currentTime + 0.05);
+  const dxp = camera.x - c.x, dzp = camera.z - c.z;
+  const dist = sqrt(dxp*dxp + dzp*dzp);
+  const vol = max(0, min(1, 1 - (dist - 2) / 40));
+  c._sizzleGain.gain.linearRampToValueAtTime((0.06 + progress * 0.2) * vol, audioCtx.currentTime + 0.05);
 }
 
 function stopCreeperSizzle(c) {
@@ -283,10 +286,11 @@ function stopCreeperSizzle(c) {
   c._sizzleGain = null;
 }
 
-function playExplosion() {
+function playExplosion(dist) {
   if (!audioCtx) return;
   const now = audioCtx.currentTime;
   const dur = 0.6;
+  const vol = max(0, min(1, 1 - (dist - 2) / 40));
   const bufLen = audioCtx.sampleRate * dur;
   const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
   const d = buf.getChannelData(0);
@@ -302,7 +306,7 @@ function playExplosion() {
   flt.frequency.setValueAtTime(4000, now);
   flt.frequency.exponentialRampToValueAtTime(80, now + dur);
   const gain = audioCtx.createGain();
-  gain.gain.setValueAtTime(0.35, now);
+  gain.gain.setValueAtTime(0.35 * vol, now);
   src.connect(flt).connect(gain).connect(audioCtx.destination);
   src.start(now);
   const osc = audioCtx.createOscillator();
@@ -310,7 +314,7 @@ function playExplosion() {
   osc.frequency.setValueAtTime(80, now);
   osc.frequency.exponentialRampToValueAtTime(25, now + dur * 0.6);
   const g2 = audioCtx.createGain();
-  g2.gain.setValueAtTime(0.3, now);
+  g2.gain.setValueAtTime(0.3 * vol, now);
   g2.gain.exponentialRampToValueAtTime(0.001, now + dur * 0.6);
   osc.connect(g2).connect(audioCtx.destination);
   osc.start(now);
@@ -1084,8 +1088,10 @@ function creeperCollides(px, py, pz, hw, ph) {
 }
 
 function creeperExplode(c) {
+  const dxp = camera.x - c.x, dzp = camera.z - c.z;
+  const dist = sqrt(dxp*dxp + dzp*dzp);
   stopCreeperSizzle(c);
-  playExplosion();
+  playExplosion(dist);
   const RADIUS = 3.5;
   for (let bx = floor(c.x - RADIUS); bx <= floor(c.x + RADIUS); bx++) {
     for (let by = floor(c.y - RADIUS); by <= floor(c.y + RADIUS); by++) {
