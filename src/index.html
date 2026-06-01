@@ -99,6 +99,161 @@ const BLOCK_NAMES = {
 
 const HOTBAR_BLOCKS = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.WOOD, BLOCK.LEAVES, BLOCK.SAND];
 
+// ===================== AUDIO SYSTEM =====================
+let audioCtx = null;
+let footstepGain = null;
+
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    footstepGain = audioCtx.createGain();
+    footstepGain.gain.value = 1;
+    footstepGain.connect(audioCtx.destination);
+  }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+  return audioCtx.state === 'running';
+}
+
+function getFootstepCategory(blockType) {
+  if (blockType === BLOCK.GRASS || blockType === BLOCK.DIRT) return 'grass';
+  if (blockType === BLOCK.STONE) return 'stone';
+  if (blockType === BLOCK.WOOD) return 'wood';
+  return 'generic';
+}
+
+function playGrassFootstep() {
+  if (!audioCtx || !footstepGain) return;
+  const now = audioCtx.currentTime;
+  const bufLen = audioCtx.sampleRate * 0.08;
+  const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < bufLen; i++) {
+    const t = i / audioCtx.sampleRate;
+    const env = Math.exp(-t * 50) * (1 + 0.3 * Math.sin(t * 80));
+    d[i] = (Math.random() * 2 - 1) * env;
+  }
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  const flt = audioCtx.createBiquadFilter();
+  flt.type = 'lowpass';
+  flt.frequency.setValueAtTime(600, now);
+  flt.frequency.exponentialRampToValueAtTime(200, now + 0.08);
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0.15, now);
+  src.connect(flt).connect(gain).connect(footstepGain);
+  src.start(now);
+}
+
+function playStoneFootstep() {
+  if (!audioCtx || !footstepGain) return;
+  const now = audioCtx.currentTime;
+  const bufLen = audioCtx.sampleRate * 0.12;
+  const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < bufLen; i++) {
+    const t = i / audioCtx.sampleRate;
+    const env = Math.exp(-t * 25) * (1 + 0.5 * Math.sin(t * 300));
+    d[i] = (Math.random() * 2 - 1) * env;
+  }
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  const flt = audioCtx.createBiquadFilter();
+  flt.type = 'bandpass';
+  flt.frequency.value = 3000;
+  flt.Q.value = 1.5;
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0.12, now);
+  src.connect(flt).connect(gain).connect(footstepGain);
+  src.start(now);
+}
+
+function playWoodFootstep() {
+  if (!audioCtx || !footstepGain) return;
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(350, now);
+  osc.frequency.exponentialRampToValueAtTime(120, now + 0.06);
+  const g1 = audioCtx.createGain();
+  g1.gain.setValueAtTime(0.18, now);
+  g1.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+  osc.connect(g1).connect(footstepGain);
+  osc.start(now);
+  osc.stop(now + 0.1);
+  const bufLen = audioCtx.sampleRate * 0.06;
+  const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
+  const dd = buf.getChannelData(0);
+  for (let i = 0; i < bufLen; i++) {
+    const t = i / audioCtx.sampleRate;
+    dd[i] = (Math.random() * 2 - 1) * Math.exp(-t * 40);
+  }
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  const flt = audioCtx.createBiquadFilter();
+  flt.type = 'bandpass';
+  flt.frequency.value = 1200;
+  flt.Q.value = 2;
+  const g2 = audioCtx.createGain();
+  g2.gain.value = 0.1;
+  src.connect(flt).connect(g2).connect(footstepGain);
+  src.start(now);
+}
+
+function playGenericFootstep() {
+  if (!audioCtx || !footstepGain) return;
+  const now = audioCtx.currentTime;
+  const bufLen = audioCtx.sampleRate * 0.1;
+  const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < bufLen; i++) {
+    const t = i / audioCtx.sampleRate;
+    d[i] = (Math.random() * 2 - 1) * Math.exp(-t * 35);
+  }
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  const flt = audioCtx.createBiquadFilter();
+  flt.type = 'bandpass';
+  flt.frequency.value = 800;
+  flt.Q.value = 1;
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0.13, now);
+  src.connect(flt).connect(gain).connect(footstepGain);
+  src.start(now);
+}
+
+function playJumpSound() {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const dur = 0.12;
+  const osc = audioCtx.createOscillator();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(180, now);
+  osc.frequency.linearRampToValueAtTime(90, now + dur);
+  const flt = audioCtx.createBiquadFilter();
+  flt.type = 'bandpass';
+  flt.frequency.setValueAtTime(500, now);
+  flt.frequency.linearRampToValueAtTime(300, now + dur);
+  flt.Q.value = 2;
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(0.15, now + 0.015);
+  gain.gain.setValueAtTime(0.15, now + 0.03);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+  osc.connect(flt).connect(gain).connect(audioCtx.destination);
+  osc.start(now);
+  osc.stop(now + dur);
+}
+
+function playFootstep(blockType) {
+  const cat = getFootstepCategory(blockType);
+  if (cat === 'grass') playGrassFootstep();
+  else if (cat === 'stone') playStoneFootstep();
+  else if (cat === 'wood') playWoodFootstep();
+  else playGenericFootstep();
+}
+
 // ===================== TEXTURE GENERATION =====================
 const TEX_SIZE = 16;
 
@@ -1007,6 +1162,7 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => keys[e.code] = false);
 
 canvas.addEventListener('click', () => {
+  initAudio();
   if (!locked) canvas.requestPointerLock();
 });
 
@@ -1131,6 +1287,7 @@ function updateCamera(dt) {
   if (keys['KeyS']) { dx += sin(camera.yaw); dz += cos(camera.yaw); }
   if (keys['KeyA']) { dx -= cos(camera.yaw); dz += sin(camera.yaw); }
   if (keys['KeyD']) { dx += cos(camera.yaw); dz -= sin(camera.yaw); }
+  const isWalking = keys['KeyW'] || keys['KeyS'] || keys['KeyA'] || keys['KeyD'];
   if (dx || dz) {
     const len = sqrt(dx*dx + dz*dz);
     dx /= len; dz /= len;
@@ -1145,10 +1302,32 @@ function updateCamera(dt) {
     camera.z += dz * spd;
   }
 
+  if (isWalking && camera.grounded) {
+    if (!camera._stepDist) camera._stepDist = 0;
+    camera._stepDist += spd;
+    while (camera._stepDist >= 1.833) {
+      camera._stepDist -= 1.833;
+      const blockBelow = getBlock(floor(camera.x), floor(camera.y - 0.1), floor(camera.z));
+      if (blockBelow !== BLOCK.AIR) {
+        playFootstep(blockBelow);
+      }
+    }
+    if (!camera._wasWalking && footstepGain) {
+      footstepGain.gain.setValueAtTime(1, audioCtx.currentTime);
+    }
+  } else {
+    camera._stepDist = 0;
+    if (footstepGain) {
+      footstepGain.gain.setValueAtTime(0, audioCtx.currentTime);
+    }
+  }
+  camera._wasWalking = isWalking && camera.grounded;
+
   camera.vy += GRAVITY * dt;
   if (keys['Space'] && camera.grounded) {
     camera.vy = JUMP_VEL;
     camera.grounded = false;
+    playJumpSound();
   }
 
   const stepY = camera.vy * dt;
