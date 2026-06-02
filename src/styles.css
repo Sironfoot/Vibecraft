@@ -93,3 +93,47 @@ canvas {
     text-align: right;
     line-height: 1.6;
 }
+
+#hearts {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 0;
+    z-index: 10;
+    pointer-events: none;
+}
+
+.heart {
+    width: 33px;
+    height: 36px;
+    font-size: 30px;
+    line-height: 36px;
+    text-align: center;
+    color: #e00;
+    filter: drop-shadow(1px 1px 1px #000);
+}
+
+.heart.empty {
+    color: #888;
+}
+
+#deathScreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ccc;
+    font-size: 24px;
+    z-index: 100;
+    pointer-events: none;
+    text-shadow: 2px 2px 4px #000;
+    text-align: center;
+    line-height: 1.8;
+    background: rgba(0, 0, 0, 0.5);
+}

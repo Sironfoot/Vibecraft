@@ -1063,6 +1063,22 @@ function creeperExplode(c) {
     const dist = sqrt(dxp*dxp + dzp*dzp);
     stopCreeperSizzle(c);
     playExplosion(dist);
+
+    // Calculate damage based on distance at moment of explosion
+    if (!isDead) {
+        const blockDist = floor(dist);
+        const damage = min(5, max(0, 6 - blockDist));
+        if (damage > 0) {
+            playerHealth -= damage;
+            if (playerHealth <= 0) {
+                playerHealth = 0;
+                isDead = true;
+                document.getElementById('deathScreen').style.display = 'flex';
+                canvas.style.filter = 'brightness(0.4) grayscale(0.6)';
+            }
+        }
+    }
+
     const RADIUS = 3.5;
     for (let bx = floor(c.x - RADIUS); bx <= floor(c.x + RADIUS); bx++) {
         for (let by = floor(c.y - RADIUS); by <= floor(c.y + RADIUS); by++) {
@@ -1205,8 +1221,19 @@ const keys = {};
 let selectedSlot = 0;
 let locked = false;
 
+// Health system
+let playerHealth = 10;
+let isDead = false;
+const SPAWN_X = 0;
+const SPAWN_Z = 0;
+let spawnY = 0;
+
 document.addEventListener('keydown', e => {
     keys[e.code] = true;
+    if (isDead && e.code === 'Space') {
+        respawnPlayer();
+        return;
+    }
     if (e.code >= 'Digit1' && e.code <= 'Digit6') {
         selectedSlot = parseInt(e.code.charAt(5)) - 1;
         updateHotbar();
@@ -1311,6 +1338,35 @@ function updateHotbar() {
     }
 }
 
+// ===================== HEARTS UI =====================
+let lastHeartCount = -1;
+
+function updateHearts() {
+    if (playerHealth === lastHeartCount) return;
+    lastHeartCount = playerHealth;
+    const heartsDiv = document.getElementById('hearts');
+    heartsDiv.innerHTML = '';
+    for (let i = 0; i < 10; i++) {
+        const heart = document.createElement('span');
+        heart.className = 'heart' + (i >= playerHealth ? ' empty' : '');
+        heart.textContent = '\u2764';
+        heartsDiv.appendChild(heart);
+    }
+}
+
+// ===================== RESPAWN =====================
+function respawnPlayer() {
+    isDead = false;
+    playerHealth = 10;
+    camera.x = SPAWN_X;
+    camera.y = spawnY + 3;
+    camera.z = SPAWN_Z;
+    camera.vy = 0;
+    document.getElementById('deathScreen').style.display = 'none';
+    canvas.style.filter = '';
+    updateHearts();
+}
+
 // ===================== GAME LOOP =====================
 let lastTime = performance.now();
 
@@ -1335,6 +1391,8 @@ function updateCamera(dt) {
     const JUMP_VEL = 8;
 
     dt = min(dt, 0.05);
+
+    if (isDead) return;
 
     let dx = 0, dz = 0;
     if (keys['KeyW']) { dx -= sin(camera.yaw); dz -= cos(camera.yaw); }
@@ -1413,7 +1471,7 @@ function getViewMatrix() {
     const right = vec3Norm(vec3Cross(fwd, [0, 1, 0]));
     const up = vec3Cross(right, fwd);
 
-    const eyeY = camera.y + 1.4;
+    const eyeY = isDead ? camera.y + 0.3 : camera.y + 1.4;
     return new Float32Array([
         right[0], up[0], -fwd[0], 0,
         right[1], up[1], -fwd[1], 0,
@@ -1494,6 +1552,7 @@ function render() {
     }
 
     document.getElementById('creeperCount').innerHTML = 'Creepers: ' + creepers.length;
+    updateHearts();
 
     requestAnimationFrame(render);
 }
@@ -1512,7 +1571,9 @@ for (let i = 0; i < 20; i++) {
 }
 
 camera.y = terrainHeight(0, 0) + 3;
+spawnY = terrainHeight(0, 0);
 
 // All chunks marked dirty by setBlock() will rebuild on first render frame
 updateHotbar();
+updateHearts();
 requestAnimationFrame(render);
