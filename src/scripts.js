@@ -1071,10 +1071,7 @@ function creeperExplode(c) {
         if (damage > 0) {
             playerHealth -= damage;
             if (playerHealth <= 0) {
-                playerHealth = 0;
-                isDead = true;
-                document.getElementById('deathScreen').style.display = 'flex';
-                canvas.style.filter = 'brightness(0.4) grayscale(0.6)';
+                killPlayer('You were blown up by a Creeper.');
             }
         }
     }
@@ -1224,6 +1221,7 @@ let locked = false;
 // Health system
 let playerHealth = 10;
 let isDead = false;
+let deathMessage = '';
 const SPAWN_X = 0;
 const SPAWN_Z = 0;
 let spawnY = 0;
@@ -1355,6 +1353,16 @@ function updateHearts() {
 }
 
 // ===================== RESPAWN =====================
+function killPlayer(message) {
+    playerHealth = 0;
+    isDead = true;
+    deathMessage = message;
+    document.getElementById('deathScreen').innerHTML = message + '<br><br>Press SPACE to continue...';
+    document.getElementById('deathScreen').style.display = 'flex';
+    canvas.style.filter = 'brightness(0.4) grayscale(0.6)';
+    updateHearts();
+}
+
 function respawnPlayer() {
     isDead = false;
     playerHealth = 10;
@@ -1362,6 +1370,7 @@ function respawnPlayer() {
     camera.y = spawnY + 3;
     camera.z = SPAWN_Z;
     camera.vy = 0;
+    deathMessage = '';
     document.getElementById('deathScreen').style.display = 'none';
     canvas.style.filter = '';
     updateHearts();
@@ -1456,8 +1465,7 @@ function updateCamera(dt) {
     }
 
     if (camera.y < -10) {
-        camera.y = 30;
-        camera.vy = 0;
+        killPlayer('You fell out of the world.');
     }
 }
 
