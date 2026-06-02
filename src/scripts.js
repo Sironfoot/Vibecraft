@@ -1293,6 +1293,16 @@ document.addEventListener('mousemove', e => {
     camera.pitch = max(-PI/2 + 0.01, min(PI/2 - 0.01, camera.pitch));
 });
 
+canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    if (e.deltaY > 0) {
+        selectedSlot = (selectedSlot + 1) % HOTBAR_BLOCKS.length;
+    } else {
+        selectedSlot = (selectedSlot - 1 + HOTBAR_BLOCKS.length) % HOTBAR_BLOCKS.length;
+    }
+    updateHotbar();
+});
+
 // ===================== RAYCASTING =====================
 function getCameraDir() {
     return [
@@ -1363,7 +1373,10 @@ function updateHotbar() {
         // Draw texture preview
         const btype = HOTBAR_BLOCKS[i];
         const texCanvas = TEXTURES[btype].top;
-        slot.appendChild(texCanvas.cloneNode());
+        const img = document.createElement('img');
+        img.src = texCanvas.toDataURL();
+        img.style.cssText = 'position:absolute;top:8px;left:8px;width:30px;height:30px;image-rendering:pixelated;';
+        slot.appendChild(img);
 
         const num = document.createElement('span');
         num.style.cssText = 'position:absolute;top:1px;left:3px;font-size:10px;z-index:1;';
