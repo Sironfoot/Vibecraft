@@ -1121,7 +1121,7 @@ function updateCreeper(c, dt) {
         c.vy = 0;
     }
 
-    if (dist < EXPLODE_DIST && c.state === 'chase') {
+    if (dist < EXPLODE_DIST && c.state === 'chase' && abs(camera.y - c.y) < 2) {
         c.state = 'explode';
         c.explodeTimer = 1.5;
         c.vy = 0;
