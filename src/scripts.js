@@ -281,6 +281,43 @@ function playFootstep(blockType) {
     else playGenericFootstep();
 }
 
+function playFallDamage() {
+    if (!audioCtx) return;
+    const now = audioCtx.currentTime;
+    const dur = 0.25;
+    // Crunch noise burst
+    const bufLen = audioCtx.sampleRate * dur;
+    const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) {
+        const t = i / audioCtx.sampleRate;
+        const env = Math.exp(-t * 20) * (1 + 0.5 * Math.sin(t * 40));
+        d[i] = (Math.random() * 2 - 1) * env;
+    }
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    const flt = audioCtx.createBiquadFilter();
+    flt.type = 'bandpass';
+    flt.frequency.setValueAtTime(3000, now);
+    flt.frequency.exponentialRampToValueAtTime(400, now + dur);
+    flt.Q.value = 2;
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.5, now);
+    src.connect(flt).connect(gain).connect(audioCtx.destination);
+    src.start(now);
+    // Low thud for impact
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(120, now);
+    osc.frequency.exponentialRampToValueAtTime(40, now + 0.15);
+    const g2 = audioCtx.createGain();
+    g2.gain.setValueAtTime(0.6, now);
+    g2.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    osc.connect(g2).connect(audioCtx.destination);
+    osc.start(now);
+    osc.stop(now + 0.15);
+}
+
 // ===================== TEXTURE GENERATION =====================
 const TEX_SIZE = 16;
 
@@ -1222,6 +1259,7 @@ let locked = false;
 let playerHealth = 10;
 let isDead = false;
 let deathMessage = '';
+let fallDamageEnabled = false;
 const SPAWN_X = 0;
 const SPAWN_Z = 0;
 let spawnY = 0;
@@ -1366,6 +1404,7 @@ function killPlayer(message) {
 function respawnPlayer() {
     isDead = false;
     playerHealth = 10;
+    fallDamageEnabled = false;
     camera.x = SPAWN_X;
     camera.y = spawnY + 3;
     camera.z = SPAWN_Z;
@@ -1456,12 +1495,34 @@ function updateCamera(dt) {
     if (!playerCollides(camera.x, camera.y + stepY, camera.z)) {
         camera.y += stepY;
         if (camera.vy > 0) camera.grounded = false;
+        if (camera.vy < 0) camera.grounded = false;
+        if (!camera.grounded && camera.vy < 0) {
+            if (!('_fallStartY' in camera)) camera._fallStartY = camera.y;
+        }
     }
     else {
         if (camera.vy < 0) {
-            camera.grounded = true;
+            const fallDist = floor((camera._fallStartY || camera.y) - camera.y);
+            const fallDamage = max(0, fallDist - 3);
+            if (fallDamageEnabled && fallDamage > 0 && !isDead) {
+                playFallDamage();
+                playerHealth -= fallDamage;
+                if (playerHealth <= 0) {
+                    killPlayer('You fell from a great height.');
+                }
+            }
         }
+        camera.grounded = true;
+        delete camera._fallStartY;
         camera.vy = 0;
+    }
+
+    if (!fallDamageEnabled && camera.grounded) {
+        fallDamageEnabled = true;
+    }
+
+    if (!camera.grounded && camera.vy >= 0) {
+        delete camera._fallStartY;
     }
 
     if (camera.y < -10) {
