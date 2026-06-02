@@ -618,7 +618,7 @@ function terrainHeight(x, z) {
 }
 
 function generateWorld() {
-    const radius = 64;
+    const radius = 128;
     for (let x = -radius; x < radius; x++) {
         for (let z = -radius; z < radius; z++) {
             const h = terrainHeight(x, z);
@@ -629,7 +629,7 @@ function generateWorld() {
             }
         }
     }
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 120; i++) {
         const tx = floor((hash2D(i * 7, 0) - 0.5) * radius * 1.5);
         const tz = floor((hash2D(i * 13, 0) - 0.5) * radius * 1.5);
         const th = terrainHeight(tx, tz);
@@ -996,9 +996,12 @@ function spawnCreeper(x, y, z) {
 }
 
 function spawnCreeperAwayFromPlayer(minDist) {
+    const WORLD_RADIUS = 128;
     for (let attempt = 0; attempt < 50; attempt++) {
-        const sx = camera.x + (Math.random() - 0.5) * 256;
-        const sz = camera.z + (Math.random() - 0.5) * 256;
+        let sx = camera.x + (Math.random() - 0.5) * 512;
+        let sz = camera.z + (Math.random() - 0.5) * 512;
+        sx = max(-WORLD_RADIUS, min(WORLD_RADIUS - 1, sx));
+        sz = max(-WORLD_RADIUS, min(WORLD_RADIUS - 1, sz));
         const dxp = sx - camera.x, dzp = sz - camera.z;
         if (sqrt(dxp*dxp + dzp*dzp) < minDist) continue;
         const sy = terrainHeight(floor(sx), floor(sz)) + 1;
@@ -1711,8 +1714,8 @@ uploadAtlas();
 generateWorld();
 
 for (let i = 0; i < 20; i++) {
-    const cx = (hash2D(i * 7 + 1, i * 13) - 0.5) * 128;
-    const cz = (hash2D(i * 17 + 3, i * 19) - 0.5) * 128;
+    const cx = (hash2D(i * 7 + 1, i * 13) - 0.5) * 256;
+    const cz = (hash2D(i * 17 + 3, i * 19) - 0.5) * 256;
     const cy = terrainHeight(floor(cx), floor(cz)) + 1;
     spawnCreeper(cx, cy, cz);
 }
