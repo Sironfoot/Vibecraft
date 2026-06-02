@@ -238,6 +238,25 @@ function stopCreeperSizzle(c) {
     c._sizzleGain = null;
 }
 
+function fadeCreeperSizzle(c) {
+    if (!c._sizzleGain || !audioCtx) return;
+    const now = audioCtx.currentTime;
+    c._sizzleFading = true;
+    c._sizzleFadeEnd = now + 1.0;
+    c._sizzleGain.gain.cancelScheduledValues(now);
+    c._sizzleGain.gain.setValueAtTime(c._sizzleGain.gain.value, now);
+    c._sizzleGain.gain.linearRampToValueAtTime(0, now + 1.0);
+}
+
+function finishCreeperSizzleFade(c) {
+    if (c._sizzleSrc) {
+        try { c._sizzleSrc.stop(); } catch(e) {}
+        c._sizzleSrc = null;
+    }
+    c._sizzleGain = null;
+    c._sizzleFading = false;
+}
+
 function playExplosion(dist) {
     if (!audioCtx) return;
     const now = audioCtx.currentTime;
@@ -1002,11 +1021,28 @@ function updateCreeper(c, dt) {
     const dist = sqrt(dxp*dxp + dzp*dzp);
 
     if (c.state === 'explode') {
-        c.explodeTimer -= dt;
-        updateCreeperSizzle(c);
-        if (c.explodeTimer <= 0) {
-            creeperExplode(c);
-            return false;
+        if (dist >= 5) {
+            fadeCreeperSizzle(c);
+            c.state = 'fading';
+        }
+        else {
+            c.explodeTimer -= dt;
+            updateCreeperSizzle(c);
+            if (c.explodeTimer <= 0) {
+                creeperExplode(c);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    if (c.state === 'fading') {
+        if (audioCtx && audioCtx.currentTime >= c._sizzleFadeEnd) {
+            finishCreeperSizzleFade(c);
+            c.state = 'wander';
+            c.timer = 1 + Math.random() * 3;
+            const angle = Math.random() * PI * 2;
+            c.wanderDir = [Math.cos(angle), Math.sin(angle)];
         }
         return true;
     }
