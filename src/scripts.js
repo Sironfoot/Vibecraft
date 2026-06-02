@@ -959,6 +959,9 @@ gl.bufferData(gl.ARRAY_BUFFER, boxMesh.norm, gl.STATIC_DRAW);
 
 // Creeper entity list
 const creepers = [];
+const creeperSpawnQueue = [];
+const CREEPER_SPAWN_DELAY = 10;
+const MAX_CREEPERS = 20;
 
 function spawnCreeper(x, y, z) {
     creepers.push({
@@ -971,6 +974,19 @@ function spawnCreeper(x, y, z) {
         grounded: false,
         explodeTimer: 0,
     });
+}
+
+function spawnCreeperAwayFromPlayer(minDist) {
+    for (let attempt = 0; attempt < 50; attempt++) {
+        const sx = camera.x + (Math.random() - 0.5) * 256;
+        const sz = camera.z + (Math.random() - 0.5) * 256;
+        const dxp = sx - camera.x, dzp = sz - camera.z;
+        if (sqrt(dxp*dxp + dzp*dzp) < minDist) continue;
+        const sy = terrainHeight(floor(sx), floor(sz)) + 1;
+        spawnCreeper(sx, sy, sz);
+        return true;
+    }
+    return false;
 }
 
 function updateCreeper(c, dt) {
@@ -1625,11 +1641,24 @@ function render() {
     // Update and render Creepers
     for (let i = creepers.length - 1; i >= 0; i--) {
         const alive = updateCreeper(creepers[i], dt);
-        if (!alive) { creepers.splice(i, 1); continue; }
+        if (!alive) {
+            creepers.splice(i, 1);
+            creeperSpawnQueue.push(performance.now() + CREEPER_SPAWN_DELAY * 1000);
+            continue;
+        }
         const dxp = camera.x - creepers[i].x;
         const dzp = camera.z - creepers[i].z;
         if (sqrt(dxp*dxp + dzp*dzp) < 120) {
             renderCreeper(creepers[i], proj, view);
+        }
+    }
+
+    // Process pending creeper spawns
+    const nowMs = performance.now();
+    for (let i = creeperSpawnQueue.length - 1; i >= 0; i--) {
+        if (creeperSpawnQueue[i] <= nowMs && creepers.length < MAX_CREEPERS) {
+            spawnCreeperAwayFromPlayer(20);
+            creeperSpawnQueue.splice(i, 1);
         }
     }
 
