@@ -41,12 +41,13 @@ function vec3Dot(a, b) { return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
 
 // ===================== BLOCK TYPES =====================
 const BLOCK = {
-    AIR: 0, GRASS: 1, DIRT: 2, STONE: 3, WOOD: 4, LEAVES: 5, SAND: 6
+    AIR: 0, GRASS: 1, DIRT: 2, STONE: 3, WOOD: 4, LEAVES: 5, SAND: 6, WATER: 7
 };
 
 const BLOCK_NAMES = {
     [BLOCK.GRASS]: 'Grass', [BLOCK.DIRT]: 'Dirt', [BLOCK.STONE]: 'Stone',
-    [BLOCK.WOOD]: 'Wood', [BLOCK.LEAVES]: 'Leaves', [BLOCK.SAND]: 'Sand'
+    [BLOCK.WOOD]: 'Wood', [BLOCK.LEAVES]: 'Leaves', [BLOCK.SAND]: 'Sand',
+    [BLOCK.WATER]: 'Water'
 };
 
 const HOTBAR_BLOCKS = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.WOOD, BLOCK.LEAVES, BLOCK.SAND];
@@ -465,6 +466,20 @@ function genSand() {
     return makeTexture(p);
 }
 
+function genWater() {
+    const p = [];
+    for (let y = 0; y < TEX_SIZE; y++) {
+        for (let x = 0; x < TEX_SIZE; x++) {
+            const wave = sin(x * 0.8 + y * 0.3) * 15 + cos(y * 0.6) * 10;
+            const r = jitter(25, 12);
+            const g = jitter(90 + wave, 20);
+            const b = jitter(170 + wave, 25);
+            p.push([r, g, b, 180]);
+        }
+    }
+    return makeTexture(p);
+}
+
 // Build texture atlas: each block has up to 3 textures (top, side, bottom)
 // Layout in atlas: each tex is TEX_SIZE x TEX_SIZE, arranged in a grid
 const ATLAS_COLS = 8;
@@ -481,6 +496,7 @@ function initTextures() {
     const woodTop = genWoodTop();
     const leavesTex = genLeaves();
     const sandTex = genSand();
+    const waterTex = genWater();
 
     TEXTURES[BLOCK.GRASS]  = { top: grassTop, side: grassSide, bottom: dirtTex };
     TEXTURES[BLOCK.DIRT]   = { top: dirtTex, side: dirtTex, bottom: dirtTex };
@@ -488,6 +504,7 @@ function initTextures() {
     TEXTURES[BLOCK.WOOD]   = { top: woodTop, side: woodSide, bottom: woodTop };
     TEXTURES[BLOCK.LEAVES] = { top: leavesTex, side: leavesTex, bottom: leavesTex };
     TEXTURES[BLOCK.SAND]   = { top: sandTex, side: sandTex, bottom: sandTex };
+    TEXTURES[BLOCK.WATER]  = { top: waterTex, side: waterTex, bottom: waterTex };
 }
 
 // Collect unique textures and build atlas
@@ -560,7 +577,7 @@ function localMod(v, m) { return ((v % m) + m) % m; }
 function getChunkRef(cx, cz) {
     const key = chunkKey(cx, cz);
     if (!chunks[key]) {
-        chunks[key] = { data: new Uint8Array(CHUNK_VOLUME), dirty: true, posBuf: null, normBuf: null, uvBuf: null, vertCount: 0 };
+        chunks[key] = { data: new Uint8Array(CHUNK_VOLUME), dirty: true, posBuf: null, normBuf: null, uvBuf: null, vertCount: 0, wPosBuf: null, wNormBuf: null, wUvBuf: null, wVertCount: 0 };
     }
     return chunks[key];
 }
@@ -649,6 +666,43 @@ function generateWorld() {
     }
 }
 
+function generateLakes() {
+    const WATER_LEVEL = 7;
+
+    for (let x = -128; x < 128; x++) {
+        for (let z = -128; z < 128; z++) {
+            const h = terrainHeight(x, z);
+            if (h < WATER_LEVEL) {
+                setBlock(x, h, z, BLOCK.WATER);
+                for (let y = h + 1; y <= WATER_LEVEL; y++) {
+                    setBlock(x, y, z, BLOCK.WATER);
+                }
+            }
+        }
+    }
+
+    for (let i = 0; i < 25; i++) {
+        const cx = floor((hash2D(i * 31 + 500, i * 47) - 0.5) * 200);
+        const cz = floor((hash2D(i * 53 + 600, i * 61) - 0.5) * 200);
+        const radius = 3 + floor(hash2D(i + 700, 800) * 5);
+
+        for (let dx = -radius; dx <= radius; dx++) {
+            for (let dz = -radius; dz <= radius; dz++) {
+                const dist = sqrt(dx*dx + dz*dz);
+                if (dist > radius) continue;
+
+                const wx = cx + dx, wz = cz + dz;
+                const depthFactor = 1 - dist / (radius + 1);
+                const lakeBottom = max(1, WATER_LEVEL - floor(3 * depthFactor));
+
+                for (let y = lakeBottom; y <= WATER_LEVEL; y++) {
+                    setBlock(wx, y, wz, BLOCK.WATER);
+                }
+            }
+        }
+    }
+}
+
 // ===================== CHUNK MESH BUILDING =====================
 const FACE_DEFS = [
     { dir: [0, 1, 0], face: 'top', norm: [0,1,0] },
@@ -664,7 +718,8 @@ function buildChunkMesh(cx, cz) {
     if (!chunk) return null;
     const data = chunk.data;
     const wx0 = cx * CHUNK_SIZE, wz0 = cz * CHUNK_SIZE;
-    const positions = [], normals = [], uvs = [];
+    const opPos = [], opNorm = [], opUVs = [];
+    const trPos = [], trNorm = [], trUVs = [];
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
         for (let ly = 0; ly < WORLD_HEIGHT; ly++) {
@@ -675,10 +730,17 @@ function buildChunkMesh(cx, cz) {
                 if (!texInfo) continue;
 
                 const wx = wx0 + lx, wz = wz0 + lz;
+                const isWater = type === BLOCK.WATER;
 
                 for (let fi = 0; fi < 6; fi++) {
                     const f = FACE_DEFS[fi];
-                    if (getBlock(wx + f.dir[0], ly + f.dir[1], wz + f.dir[2]) !== BLOCK.AIR) continue;
+                    const neighbor = getBlock(wx + f.dir[0], ly + f.dir[1], wz + f.dir[2]);
+
+                    if (isWater) {
+                        if (neighbor !== BLOCK.AIR) continue;
+                    } else {
+                        if (neighbor !== BLOCK.AIR && neighbor !== BLOCK.WATER) continue;
+                    }
 
                     const uv = texInfo[f.face] || texInfo['side'];
                     let verts;
@@ -692,16 +754,20 @@ function buildChunkMesh(cx, cz) {
                         case 'back':   verts = [[wx+1,ly,wz],[wx,ly,wz],[wx,ly+1,wz],[wx+1,ly,wz],[wx,ly+1,wz],[wx+1,ly+1,wz]]; break;
                     }
 
+                    const posArr = isWater ? trPos : opPos;
+                    const normArr = isWater ? trNorm : opNorm;
+                    const uvArr = isWater ? trUVs : opUVs;
+
                     for (let vi = 0; vi < 6; vi++) {
-                        positions.push(verts[vi][0], verts[vi][1], verts[vi][2]);
-                        normals.push(f.norm[0], f.norm[1], f.norm[2]);
+                        posArr.push(verts[vi][0], verts[vi][1], verts[vi][2]);
+                        normArr.push(f.norm[0], f.norm[1], f.norm[2]);
                     }
 
                     if (f.face === 'left' || f.face === 'right') {
-                        uvs.push(uv.u0,uv.v1, uv.u0,uv.v0, uv.u1,uv.v0, uv.u0,uv.v1, uv.u1,uv.v0, uv.u1,uv.v1);
+                        uvArr.push(uv.u0,uv.v1, uv.u0,uv.v0, uv.u1,uv.v0, uv.u0,uv.v1, uv.u1,uv.v0, uv.u1,uv.v1);
                     }
                     else {
-                        uvs.push(uv.u0,uv.v1, uv.u1,uv.v1, uv.u1,uv.v0, uv.u0,uv.v1, uv.u1,uv.v0, uv.u0,uv.v0);
+                        uvArr.push(uv.u0,uv.v1, uv.u1,uv.v1, uv.u1,uv.v0, uv.u0,uv.v1, uv.u1,uv.v0, uv.u0,uv.v0);
                     }
                 }
             }
@@ -709,9 +775,8 @@ function buildChunkMesh(cx, cz) {
     }
 
     return {
-        positions: new Float32Array(positions),
-        normals: new Float32Array(normals),
-        uvs: new Float32Array(uvs)
+        opaque: { positions: new Float32Array(opPos), normals: new Float32Array(opNorm), uvs: new Float32Array(opUVs) },
+        transparent: { positions: new Float32Array(trPos), normals: new Float32Array(trNorm), uvs: new Float32Array(trUVs) }
     };
 }
 
@@ -765,7 +830,7 @@ const fsSource = `
         vec3 fogColor = vec3(0.55, 0.72, 0.9);
         color = mix(color, fogColor, fog);
 
-        gl_FragColor = vec4(color, 1.0);
+        gl_FragColor = vec4(color, texColor.a);
     }
 `;
 
@@ -817,29 +882,48 @@ function uploadChunkMesh(cx, cz) {
     const chunk = chunks[chunkKey(cx, cz)];
     if (!chunk) return;
     const mesh = buildChunkMesh(cx, cz);
-    if (!mesh || mesh.positions.length === 0) {
-        // Free old buffers if empty
-        if (chunk.posBuf) { gl.deleteBuffer(chunk.posBuf); chunk.posBuf = null; }
-        if (chunk.normBuf) { gl.deleteBuffer(chunk.normBuf); chunk.normBuf = null; }
-        if (chunk.uvBuf) { gl.deleteBuffer(chunk.uvBuf); chunk.uvBuf = null; }
-        chunk.vertCount = 0;
+    if (!mesh) {
         chunk.dirty = false;
         return;
     }
 
-    chunk.vertCount = mesh.positions.length / 3;
+    // Upload opaque mesh
+    if (mesh.opaque.positions.length === 0) {
+        if (chunk.posBuf) { gl.deleteBuffer(chunk.posBuf); chunk.posBuf = null; }
+        if (chunk.normBuf) { gl.deleteBuffer(chunk.normBuf); chunk.normBuf = null; }
+        if (chunk.uvBuf) { gl.deleteBuffer(chunk.uvBuf); chunk.uvBuf = null; }
+        chunk.vertCount = 0;
+    } else {
+        chunk.vertCount = mesh.opaque.positions.length / 3;
+        if (!chunk.posBuf) chunk.posBuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, chunk.posBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, mesh.opaque.positions, gl.STATIC_DRAW);
+        if (!chunk.normBuf) chunk.normBuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, chunk.normBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, mesh.opaque.normals, gl.STATIC_DRAW);
+        if (!chunk.uvBuf) chunk.uvBuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, chunk.uvBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, mesh.opaque.uvs, gl.STATIC_DRAW);
+    }
 
-    if (!chunk.posBuf) chunk.posBuf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, chunk.posBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, mesh.positions, gl.STATIC_DRAW);
-
-    if (!chunk.normBuf) chunk.normBuf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, chunk.normBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, mesh.normals, gl.STATIC_DRAW);
-
-    if (!chunk.uvBuf) chunk.uvBuf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, chunk.uvBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, mesh.uvs, gl.STATIC_DRAW);
+    // Upload transparent (water) mesh
+    if (mesh.transparent.positions.length === 0) {
+        if (chunk.wPosBuf) { gl.deleteBuffer(chunk.wPosBuf); chunk.wPosBuf = null; }
+        if (chunk.wNormBuf) { gl.deleteBuffer(chunk.wNormBuf); chunk.wNormBuf = null; }
+        if (chunk.wUvBuf) { gl.deleteBuffer(chunk.wUvBuf); chunk.wUvBuf = null; }
+        chunk.wVertCount = 0;
+    } else {
+        chunk.wVertCount = mesh.transparent.positions.length / 3;
+        if (!chunk.wPosBuf) chunk.wPosBuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, chunk.wPosBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, mesh.transparent.positions, gl.STATIC_DRAW);
+        if (!chunk.wNormBuf) chunk.wNormBuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, chunk.wNormBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, mesh.transparent.normals, gl.STATIC_DRAW);
+        if (!chunk.wUvBuf) chunk.wUvBuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, chunk.wUvBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, mesh.transparent.uvs, gl.STATIC_DRAW);
+    }
 
     chunk.dirty = false;
 }
@@ -864,6 +948,20 @@ function bindChunkAttribs(chunk) {
     gl.vertexAttribPointer(aNorm, 3, gl.FLOAT, false, 0, 0);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, chunk.uvBuf);
+    gl.enableVertexAttribArray(aUV);
+    gl.vertexAttribPointer(aUV, 2, gl.FLOAT, false, 0, 0);
+}
+
+function bindWaterAttribs(chunk) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, chunk.wPosBuf);
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, chunk.wNormBuf);
+    gl.enableVertexAttribArray(aNorm);
+    gl.vertexAttribPointer(aNorm, 3, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, chunk.wUvBuf);
     gl.enableVertexAttribArray(aUV);
     gl.vertexAttribPointer(aUV, 2, gl.FLOAT, false, 0, 0);
 }
@@ -1005,6 +1103,7 @@ function spawnCreeperAwayFromPlayer(minDist) {
         const dxp = sx - camera.x, dzp = sz - camera.z;
         if (sqrt(dxp*dxp + dzp*dzp) < minDist) continue;
         const sy = terrainHeight(floor(sx), floor(sz)) + 1;
+        if (getBlock(floor(sx), floor(sy), floor(sz)) === BLOCK.WATER) continue;
         spawnCreeper(sx, sy, sz);
         return true;
     }
@@ -1124,6 +1223,46 @@ function updateCreeper(c, dt) {
         c.vy = 0;
     }
 
+    // Check if creeper is in water
+    const cInWater = getBlock(floor(c.x), floor(c.y + 0.5), floor(c.z)) === BLOCK.WATER;
+
+    if (cInWater && c.state !== 'explode' && c.state !== 'fading') {
+        // Bob on water surface
+        const waterSurfaceY = floor(c.y) + 1;
+        c.y += (waterSurfaceY - c.y) * 0.1;
+        c.vy = sin(performance.now() * 0.003 + c.x * 7) * 0.005;
+        c.grounded = false;
+
+        // Reduced horizontal movement in water
+        const waterSpd = walkSpeed * 0.4 * dt;
+        if (!creeperCollides(c.x + moveX * waterSpd, c.y, c.z, hw, ph)) {
+            c.x += moveX * waterSpd;
+            c.vx = moveX * walkSpeed * 0.4;
+        } else {
+            c.vx = 0;
+        }
+        if (!creeperCollides(c.x, c.y, c.z + moveZ * waterSpd, hw, ph)) {
+            c.z += moveZ * waterSpd;
+            c.vz = moveZ * walkSpeed * 0.4;
+        } else {
+            c.vz = 0;
+        }
+
+        if (dist < EXPLODE_DIST && c.state === 'chase' && abs(camera.y - c.y) < 2) {
+            c.state = 'explode';
+            c.explodeTimer = 1.5;
+            c.vy = 0;
+            c.vx = 0;
+            c.vz = 0;
+            startCreeperSizzle(c);
+        }
+
+        if (c.y < -10) {
+            return false;
+        }
+        return true;
+    }
+
     if (dist < EXPLODE_DIST && c.state === 'chase' && abs(camera.y - c.y) < 2) {
         c.state = 'explode';
         c.explodeTimer = 1.5;
@@ -1168,13 +1307,17 @@ function creeperExplode(c) {
         }
     }
 
-    const RADIUS = 3.5;
-    for (let bx = floor(c.x - RADIUS); bx <= floor(c.x + RADIUS); bx++) {
-        for (let by = floor(c.y - RADIUS); by <= floor(c.y + RADIUS); by++) {
-            for (let bz = floor(c.z - RADIUS); bz <= floor(c.z + RADIUS); bz++) {
-                const d = sqrt((bx+0.5-c.x)**2 + (by+0.5-c.y)**2 + (bz+0.5-c.z)**2);
-                if (d < RADIUS && getBlock(bx, by, bz) !== BLOCK.AIR) {
-                    setBlock(bx, by, bz, BLOCK.AIR);
+    const inWater = getBlock(floor(c.x), floor(c.y + 0.5), floor(c.z)) === BLOCK.WATER;
+
+    if (!inWater) {
+        const RADIUS = 3.5;
+        for (let bx = floor(c.x - RADIUS); bx <= floor(c.x + RADIUS); bx++) {
+            for (let by = floor(c.y - RADIUS); by <= floor(c.y + RADIUS); by++) {
+                for (let bz = floor(c.z - RADIUS); bz <= floor(c.z + RADIUS); bz++) {
+                    const d = sqrt((bx+0.5-c.x)**2 + (by+0.5-c.y)**2 + (bz+0.5-c.z)**2);
+                    if (d < RADIUS && getBlock(bx, by, bz) !== BLOCK.AIR) {
+                        setBlock(bx, by, bz, BLOCK.AIR);
+                    }
                 }
             }
         }
@@ -1401,11 +1544,18 @@ canvas.addEventListener('mousedown', e => {
     const result = raycast([camera.x, eyeY, camera.z], dir, 8);
 
     if (result.hit) {
+        const hitType = getBlock(result.blockX, result.blockY, result.blockZ);
         if (e.button === 0) {
+            if (hitType === BLOCK.WATER) return;
             setBlock(result.blockX, result.blockY, result.blockZ, BLOCK.AIR);
         }
         else if (e.button === 2) {
-            const px = result.placeX, py = result.placeY, pz = result.placeZ;
+            let px, py, pz;
+            if (hitType === BLOCK.WATER) {
+                px = result.blockX; py = result.blockY; pz = result.blockZ;
+            } else {
+                px = result.placeX; py = result.placeY; pz = result.placeZ;
+            }
             const playerMinX = camera.x - 0.3, playerMaxX = camera.x + 0.3;
             const playerMinZ = camera.z - 0.3, playerMaxZ = camera.z + 0.3;
             const playerMinY = camera.y, playerMaxY = camera.y + 3.4;
@@ -1487,7 +1637,21 @@ function respawnPlayer() {
 let lastTime = performance.now();
 
 function isSolid(x, y, z) {
-    return getBlock(floor(x), floor(y), floor(z)) !== BLOCK.AIR;
+    const b = getBlock(floor(x), floor(y), floor(z));
+    return b !== BLOCK.AIR && b !== BLOCK.WATER;
+}
+
+function isInWater(px, py, pz) {
+    const hw = 0.28;
+    const checks = [
+        [px - hw, py, pz - hw], [px + hw, py, pz - hw],
+        [px - hw, py, pz + hw], [px + hw, py, pz + hw],
+        [px, py, pz], [px, py + 1.7, pz]
+    ];
+    for (const c of checks) {
+        if (getBlock(floor(c[0]), floor(c[1]), floor(c[2])) === BLOCK.WATER) return true;
+    }
+    return false;
 }
 
 function playerCollides(px, py, pz) {
@@ -1505,6 +1669,8 @@ function playerCollides(px, py, pz) {
 function updateCamera(dt) {
     const GRAVITY = -20;
     const JUMP_VEL = 8;
+    const WATER_GRAVITY = -3;
+    const SWIM_SPEED = 4;
 
     dt = min(dt, 0.05);
 
@@ -1521,7 +1687,9 @@ function updateCamera(dt) {
         dx /= len; dz /= len;
     }
 
-    const spd = camera.speed * dt;
+    const inWater = isInWater(camera.x, camera.y, camera.z);
+    const moveSpeed = inWater ? SWIM_SPEED : camera.speed;
+    const spd = moveSpeed * dt;
 
     if (!playerCollides(camera.x + dx * spd, camera.y, camera.z)) {
         camera.x += dx * spd;
@@ -1530,13 +1698,25 @@ function updateCamera(dt) {
         camera.z += dz * spd;
     }
 
+    // Auto-jump out of water onto land at same height
+    if (inWater && isWalking) {
+        const aheadX = camera.x + dx * 0.6;
+        const aheadZ = camera.z + dz * 0.6;
+        const footY = floor(camera.y);
+        if (isSolid(aheadX, footY, aheadZ) || isSolid(aheadX, footY + 1, aheadZ)) {
+            if (!playerCollides(camera.x, camera.y + 1.2, camera.z)) {
+                camera.vy = JUMP_VEL * 0.7;
+            }
+        }
+    }
+
     if (isWalking && camera.grounded) {
         if (!camera._stepDist) camera._stepDist = 0;
         camera._stepDist += spd;
         while (camera._stepDist >= 1.833) {
             camera._stepDist -= 1.833;
             const blockBelow = getBlock(floor(camera.x), floor(camera.y - 0.1), floor(camera.z));
-            if (blockBelow !== BLOCK.AIR) {
+            if (blockBelow !== BLOCK.AIR && blockBelow !== BLOCK.WATER) {
                 playFootstep(blockBelow);
             }
         }
@@ -1552,11 +1732,20 @@ function updateCamera(dt) {
     }
     camera._wasWalking = isWalking && camera.grounded;
 
-    camera.vy += GRAVITY * dt;
-    if (keys['Space'] && camera.grounded) {
-        camera.vy = JUMP_VEL;
-        camera.grounded = false;
-        playJumpSound();
+    if (inWater) {
+        camera.vy += WATER_GRAVITY * dt;
+        if (keys['Space']) {
+            camera.vy = SWIM_SPEED;
+            camera.grounded = false;
+        }
+        camera.vy = max(-2, min(SWIM_SPEED, camera.vy));
+    } else {
+        camera.vy += GRAVITY * dt;
+        if (keys['Space'] && camera.grounded) {
+            camera.vy = JUMP_VEL;
+            camera.grounded = false;
+            playJumpSound();
+        }
     }
 
     const stepY = camera.vy * dt;
@@ -1569,7 +1758,7 @@ function updateCamera(dt) {
         }
     }
     else {
-        if (camera.vy < 0) {
+        if (camera.vy < 0 && !inWater) {
             const fallDist = floor((camera._fallStartY || camera.y) - camera.y);
             const fallDamage = max(0, fallDist - 3);
             if (fallDamageEnabled && fallDamage > 0 && !isDead) {
@@ -1644,13 +1833,14 @@ function render() {
     // Draw all visible chunks within render distance
     const pcx = floor(camera.x / CHUNK_SIZE), pcz = floor(camera.z / CHUNK_SIZE);
     const chunkRange = floor(RENDER_DIST / CHUNK_SIZE) + 1;
+
+    // Pass 1: Opaque geometry
     for (let dx = -chunkRange; dx <= chunkRange; dx++) {
         for (let dz = -chunkRange; dz <= chunkRange; dz++) {
             const cx = pcx + dx, cz = pcz + dz;
             const key = chunkKey(cx, cz);
             const chunk = chunks[key];
             if (!chunk || chunk.vertCount === 0) continue;
-            // Distance culling
             const dcx = (cx * CHUNK_SIZE + CHUNK_SIZE / 2) - camera.x;
             const dcz = (cz * CHUNK_SIZE + CHUNK_SIZE / 2) - camera.z;
             if (dcx * dcx + dcz * dcz > RENDER_DIST_SQ) continue;
@@ -1659,11 +1849,29 @@ function render() {
         }
     }
 
+    // Pass 2: Transparent water geometry with blending
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    for (let dx = -chunkRange; dx <= chunkRange; dx++) {
+        for (let dz = -chunkRange; dz <= chunkRange; dz++) {
+            const cx = pcx + dx, cz = pcz + dz;
+            const key = chunkKey(cx, cz);
+            const chunk = chunks[key];
+            if (!chunk || chunk.wVertCount === 0) continue;
+            const dcx = (cx * CHUNK_SIZE + CHUNK_SIZE / 2) - camera.x;
+            const dcz = (cz * CHUNK_SIZE + CHUNK_SIZE / 2) - camera.z;
+            if (dcx * dcx + dcz * dcz > RENDER_DIST_SQ) continue;
+            bindWaterAttribs(chunk);
+            gl.drawArrays(gl.TRIANGLES, 0, chunk.wVertCount);
+        }
+    }
+    gl.disable(gl.BLEND);
+
     const dir = getCameraDir();
     const eyeY = camera.y + 1.4;
     const result = raycast([camera.x, eyeY, camera.z], dir, 8);
 
-    if (result.hit) {
+    if (result.hit && getBlock(result.blockX, result.blockY, result.blockZ) !== BLOCK.WATER) {
         gl.useProgram(hlProg);
         gl.uniformMatrix4fv(hlUProj, false, proj);
 
@@ -1712,12 +1920,15 @@ initTextures();
 buildAtlas();
 uploadAtlas();
 generateWorld();
+generateLakes();
 
 for (let i = 0; i < 20; i++) {
     const cx = (hash2D(i * 7 + 1, i * 13) - 0.5) * 256;
     const cz = (hash2D(i * 17 + 3, i * 19) - 0.5) * 256;
     const cy = terrainHeight(floor(cx), floor(cz)) + 1;
-    spawnCreeper(cx, cy, cz);
+    if (getBlock(floor(cx), floor(cy), floor(cz)) !== BLOCK.WATER) {
+        spawnCreeper(cx, cy, cz);
+    }
 }
 
 camera.y = terrainHeight(0, 0) + 3;
