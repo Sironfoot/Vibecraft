@@ -60,9 +60,9 @@ const WATER_FLOW_INTERVAL = 500;
 
 function triggerWaterFlow(bx, by, bz) {
     waterFlowGen++;
-    const dirs = [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]];
+    const dirs = [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0]];
     for (let d = 0; d < dirs.length; d++) {
-        const nx = bx + dirs[d][0], ny = by, nz = bz + dirs[d][2];
+        const nx = bx + dirs[d][0], ny = by + dirs[d][1], nz = bz + dirs[d][2];
         if (getBlock(nx, ny, nz) === BLOCK.WATER && !waterFlowProcessed.has(`${waterFlowGen},${nx},${ny},${nz}`)) {
             waterFlowQueue.push({ x: nx, y: ny, z: nz, time: performance.now() + WATER_FLOW_INTERVAL, gen: waterFlowGen });
             waterFlowProcessed.add(`${waterFlowGen},${nx},${ny},${nz}`);
@@ -78,6 +78,9 @@ function processWaterFlow(nowMs) {
         if (getBlock(entry.x, entry.y, entry.z) !== BLOCK.WATER) continue;
         for (let d = 0; d < dirs.length; d++) {
             const nx = entry.x + dirs[d][0], ny = entry.y + dirs[d][1], nz = entry.z + dirs[d][2];
+            if (ny < 0 || ny >= WORLD_HEIGHT) continue;
+            const ncx = floor(nx / CHUNK_SIZE), ncz = floor(nz / CHUNK_SIZE);
+            if (!chunks[chunkKey(ncx, ncz)]) continue;
             if (getBlock(nx, ny, nz) === BLOCK.AIR && !waterFlowProcessed.has(`${entry.gen},${nx},${ny},${nz}`)) {
                 setBlock(nx, ny, nz, BLOCK.WATER);
                 waterFlowProcessed.add(`${entry.gen},${nx},${ny},${nz}`);
@@ -1379,6 +1382,7 @@ function creeperExplode(c) {
                 const block = getBlock(bx, by, bz);
                 if (d < RADIUS && block !== BLOCK.AIR && block !== BLOCK.WATER) {
                     setBlock(bx, by, bz, BLOCK.AIR);
+                    triggerWaterFlow(bx, by, bz);
                 }
             }
         }
