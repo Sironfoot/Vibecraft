@@ -79,8 +79,7 @@ function processWaterFlow(nowMs) {
         for (let d = 0; d < dirs.length; d++) {
             const nx = entry.x + dirs[d][0], ny = entry.y + dirs[d][1], nz = entry.z + dirs[d][2];
             if (ny < 0 || ny >= WORLD_HEIGHT) continue;
-            const ncx = floor(nx / CHUNK_SIZE), ncz = floor(nz / CHUNK_SIZE);
-            if (!chunks[chunkKey(ncx, ncz)]) continue;
+            if (nx < -128 || nx >= 128 || nz < -128 || nz >= 128) continue;
             if (getBlock(nx, ny, nz) === BLOCK.AIR && !waterFlowProcessed.has(`${entry.gen},${nx},${ny},${nz}`)) {
                 setBlock(nx, ny, nz, BLOCK.WATER);
                 waterFlowProcessed.add(`${entry.gen},${nx},${ny},${nz}`);
