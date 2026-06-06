@@ -668,9 +668,11 @@ function generateWorld() {
 
 function generateLakes() {
     const WATER_LEVEL = 7;
+    const SPAWN_SAFE_RADIUS = 15;
 
     for (let x = -128; x < 128; x++) {
         for (let z = -128; z < 128; z++) {
+            if (sqrt(x*x + z*z) < SPAWN_SAFE_RADIUS) continue;
             const h = terrainHeight(x, z);
             if (h < WATER_LEVEL) {
                 setBlock(x, h, z, BLOCK.WATER);
@@ -681,10 +683,24 @@ function generateLakes() {
         }
     }
 
-    for (let i = 0; i < 25; i++) {
-        const cx = floor((hash2D(i * 31 + 500, i * 47) - 0.5) * 200);
-        const cz = floor((hash2D(i * 53 + 600, i * 61) - 0.5) * 200);
-        const radius = 3 + floor(hash2D(i + 700, 800) * 5);
+    for (let i = 0; i < 60; i++) {
+        const cx = floor((hash2D(i * 31 + 500, i * 47) - 0.5) * 240);
+        const cz = floor((hash2D(i * 53 + 600, i * 61) - 0.5) * 240);
+
+        if (sqrt(cx*cx + cz*cz) < SPAWN_SAFE_RADIUS) continue;
+
+        const radius = 3 + floor(hash2D(i + 700, 800) * 6);
+
+        // Find lowest terrain in lake area — water surface sits flush here
+        let minTerrainH = WORLD_HEIGHT;
+        for (let dx = -radius; dx <= radius; dx++) {
+            for (let dz = -radius; dz <= radius; dz++) {
+                const dist = sqrt(dx*dx + dz*dz);
+                if (dist > radius) continue;
+                const h = terrainHeight(cx + dx, cz + dz);
+                if (h < minTerrainH) minTerrainH = h;
+            }
+        }
 
         for (let dx = -radius; dx <= radius; dx++) {
             for (let dz = -radius; dz <= radius; dz++) {
@@ -692,11 +708,17 @@ function generateLakes() {
                 if (dist > radius) continue;
 
                 const wx = cx + dx, wz = cz + dz;
+                const terrainH = terrainHeight(wx, wz);
                 const depthFactor = 1 - dist / (radius + 1);
-                const lakeBottom = max(1, WATER_LEVEL - floor(3 * depthFactor));
+                const lakeBottom = max(1, minTerrainH - floor(3 * depthFactor));
 
-                for (let y = lakeBottom; y <= WATER_LEVEL; y++) {
+                for (let y = lakeBottom; y <= minTerrainH; y++) {
                     setBlock(wx, y, wz, BLOCK.WATER);
+                }
+                if (terrainH > minTerrainH) {
+                    for (let y = minTerrainH + 1; y <= terrainH; y++) {
+                        setBlock(wx, y, wz, BLOCK.AIR);
+                    }
                 }
             }
         }
