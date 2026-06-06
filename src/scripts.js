@@ -1547,7 +1547,8 @@ function raycast(origin, dir, maxDist) {
         pz = origin[2] + dir[2] * d;
 
         const bx = floor(px), by = floor(py), bz = floor(pz);
-        if (getBlock(bx, by, bz) !== BLOCK.AIR) {
+        const block = getBlock(bx, by, bz);
+        if (block !== BLOCK.AIR && block !== BLOCK.WATER) {
             return {
                 hit: true,
                 blockX: bx, blockY: by, blockZ: bz,
