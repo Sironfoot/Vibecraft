@@ -767,13 +767,15 @@ function buildChunkMesh(cx, cz) {
                     const uv = texInfo[f.face] || texInfo['side'];
                     let verts;
 
+                    const waterLevel = isWater ? 0.88 : 1;
+
                     switch (f.face) {
-                        case 'top':    verts = [[wx,ly+1,wz],[wx+1,ly+1,wz],[wx+1,ly+1,wz+1],[wx,ly+1,wz],[wx+1,ly+1,wz+1],[wx,ly+1,wz+1]]; break;
+                        case 'top':    verts = [[wx,ly+waterLevel,wz],[wx+1,ly+waterLevel,wz],[wx+1,ly+waterLevel,wz+1],[wx,ly+waterLevel,wz],[wx+1,ly+waterLevel,wz+1],[wx,ly+waterLevel,wz+1]]; break;
                         case 'bottom': verts = [[wx,ly,wz],[wx+1,ly,wz],[wx+1,ly,wz+1],[wx,ly,wz],[wx+1,ly,wz+1],[wx,ly,wz+1]]; break;
-                        case 'right':  verts = [[wx+1,ly,wz],[wx+1,ly+1,wz],[wx+1,ly+1,wz+1],[wx+1,ly,wz],[wx+1,ly+1,wz+1],[wx+1,ly,wz+1]]; break;
-                        case 'left':   verts = [[wx,ly,wz],[wx,ly+1,wz],[wx,ly+1,wz+1],[wx,ly,wz],[wx,ly+1,wz+1],[wx,ly,wz+1]]; break;
-                        case 'front':  verts = [[wx,ly,wz+1],[wx+1,ly,wz+1],[wx+1,ly+1,wz+1],[wx,ly,wz+1],[wx+1,ly+1,wz+1],[wx,ly+1,wz+1]]; break;
-                        case 'back':   verts = [[wx+1,ly,wz],[wx,ly,wz],[wx,ly+1,wz],[wx+1,ly,wz],[wx,ly+1,wz],[wx+1,ly+1,wz]]; break;
+                        case 'right':  verts = [[wx+1,ly,wz],[wx+1,ly+waterLevel,wz],[wx+1,ly+waterLevel,wz+1],[wx+1,ly,wz],[wx+1,ly+waterLevel,wz+1],[wx+1,ly,wz+1]]; break;
+                        case 'left':   verts = [[wx,ly,wz],[wx,ly+waterLevel,wz],[wx,ly+waterLevel,wz+1],[wx,ly,wz],[wx,ly+waterLevel,wz+1],[wx,ly,wz+1]]; break;
+                        case 'front':  verts = [[wx,ly,wz+1],[wx+1,ly,wz+1],[wx+1,ly+waterLevel,wz+1],[wx,ly,wz+1],[wx+1,ly+waterLevel,wz+1],[wx,ly+waterLevel,wz+1]]; break;
+                        case 'back':   verts = [[wx+1,ly,wz],[wx,ly,wz],[wx,ly+waterLevel,wz],[wx+1,ly,wz],[wx,ly+waterLevel,wz],[wx+1,ly+waterLevel,wz]]; break;
                     }
 
                     const posArr = isWater ? trPos : opPos;
