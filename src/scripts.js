@@ -1317,10 +1317,15 @@ function creeperExplode(c) {
     stopCreeperSizzle(c);
     playExplosion(dist);
 
+    const inWater = getBlock(floor(c.x), floor(c.y + 0.5), floor(c.z)) === BLOCK.WATER;
+
     // Calculate damage based on distance at moment of explosion
     if (!isDead) {
         const blockDist = floor(dist);
-        const damage = min(5, max(0, 6 - blockDist));
+        let damage = min(5, max(0, 6 - blockDist));
+        if (inWater) {
+            damage = floor(damage * 0.5);
+        }
         if (damage > 0) {
             playerHealth -= damage;
             if (playerHealth <= 0) {
@@ -1329,17 +1334,14 @@ function creeperExplode(c) {
         }
     }
 
-    const inWater = getBlock(floor(c.x), floor(c.y + 0.5), floor(c.z)) === BLOCK.WATER;
-
-    if (!inWater) {
-        const RADIUS = 3.5;
-        for (let bx = floor(c.x - RADIUS); bx <= floor(c.x + RADIUS); bx++) {
-            for (let by = floor(c.y - RADIUS); by <= floor(c.y + RADIUS); by++) {
-                for (let bz = floor(c.z - RADIUS); bz <= floor(c.z + RADIUS); bz++) {
-                    const d = sqrt((bx+0.5-c.x)**2 + (by+0.5-c.y)**2 + (bz+0.5-c.z)**2);
-                    if (d < RADIUS && getBlock(bx, by, bz) !== BLOCK.AIR) {
-                        setBlock(bx, by, bz, BLOCK.AIR);
-                    }
+    const RADIUS = inWater ? 1.75 : 3.5;
+    for (let bx = floor(c.x - RADIUS); bx <= floor(c.x + RADIUS); bx++) {
+        for (let by = floor(c.y - RADIUS); by <= floor(c.y + RADIUS); by++) {
+            for (let bz = floor(c.z - RADIUS); bz <= floor(c.z + RADIUS); bz++) {
+                const d = sqrt((bx+0.5-c.x)**2 + (by+0.5-c.y)**2 + (bz+0.5-c.z)**2);
+                const block = getBlock(bx, by, bz);
+                if (d < RADIUS && block !== BLOCK.AIR && block !== BLOCK.WATER) {
+                    setBlock(bx, by, bz, BLOCK.AIR);
                 }
             }
         }
