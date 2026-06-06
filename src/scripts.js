@@ -52,6 +52,41 @@ const BLOCK_NAMES = {
 
 const HOTBAR_BLOCKS = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.WOOD, BLOCK.LEAVES, BLOCK.SAND];
 
+// ===================== WATER FLOW =====================
+let waterFlowQueue = [];
+let waterFlowProcessed = new Set();
+let waterFlowGen = 0;
+const WATER_FLOW_INTERVAL = 500;
+
+function triggerWaterFlow(bx, by, bz) {
+    waterFlowGen++;
+    const dirs = [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]];
+    for (let d = 0; d < dirs.length; d++) {
+        const nx = bx + dirs[d][0], ny = by, nz = bz + dirs[d][2];
+        if (getBlock(nx, ny, nz) === BLOCK.WATER && !waterFlowProcessed.has(`${waterFlowGen},${nx},${ny},${nz}`)) {
+            waterFlowQueue.push({ x: nx, y: ny, z: nz, time: performance.now() + WATER_FLOW_INTERVAL, gen: waterFlowGen });
+            waterFlowProcessed.add(`${waterFlowGen},${nx},${ny},${nz}`);
+        }
+    }
+}
+
+function processWaterFlow(nowMs) {
+    const dirs = [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,-1,0]];
+    for (let i = waterFlowQueue.length - 1; i >= 0; i--) {
+        if (waterFlowQueue[i].time > nowMs) continue;
+        const entry = waterFlowQueue.splice(i, 1)[0];
+        if (getBlock(entry.x, entry.y, entry.z) !== BLOCK.WATER) continue;
+        for (let d = 0; d < dirs.length; d++) {
+            const nx = entry.x + dirs[d][0], ny = entry.y + dirs[d][1], nz = entry.z + dirs[d][2];
+            if (getBlock(nx, ny, nz) === BLOCK.AIR && !waterFlowProcessed.has(`${entry.gen},${nx},${ny},${nz}`)) {
+                setBlock(nx, ny, nz, BLOCK.WATER);
+                waterFlowProcessed.add(`${entry.gen},${nx},${ny},${nz}`);
+                waterFlowQueue.push({ x: nx, y: ny, z: nz, time: performance.now() + WATER_FLOW_INTERVAL, gen: entry.gen });
+            }
+        }
+    }
+}
+
 // ===================== AUDIO SYSTEM =====================
 let audioCtx = null;
 let footstepGain = null;
@@ -1574,7 +1609,9 @@ canvas.addEventListener('mousedown', e => {
         const hitType = getBlock(result.blockX, result.blockY, result.blockZ);
         if (e.button === 0) {
             if (hitType === BLOCK.WATER) return;
-            setBlock(result.blockX, result.blockY, result.blockZ, BLOCK.AIR);
+            const brokenX = result.blockX, brokenY = result.blockY, brokenZ = result.blockZ;
+            setBlock(brokenX, brokenY, brokenZ, BLOCK.AIR);
+            triggerWaterFlow(brokenX, brokenY, brokenZ);
         }
         else if (e.button === 2) {
             let px, py, pz;
@@ -1588,6 +1625,7 @@ canvas.addEventListener('mousedown', e => {
             const playerMinY = camera.y, playerMaxY = camera.y + 3.4;
             if (px+1 > playerMinX && px < playerMaxX && py+1 > playerMinY && py < playerMaxY && pz+1 > playerMinZ && pz < playerMaxZ) return;
             setBlock(px, py, pz, HOTBAR_BLOCKS[selectedSlot]);
+            triggerWaterFlow(px, py, pz);
         }
     }
 });
@@ -1935,6 +1973,8 @@ function render() {
             creeperSpawnQueue.splice(i, 1);
         }
     }
+
+    processWaterFlow(nowMs);
 
     document.getElementById('creeperCount').innerHTML = 'Creepers: ' + creepers.length;
     updateHearts();
