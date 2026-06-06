@@ -683,7 +683,7 @@ function generateLakes() {
         }
     }
 
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 35; i++) {
         const cx = floor((hash2D(i * 31 + 500, i * 47) - 0.5) * 240);
         const cz = floor((hash2D(i * 53 + 600, i * 61) - 0.5) * 240);
 
