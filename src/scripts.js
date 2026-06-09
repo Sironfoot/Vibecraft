@@ -1948,7 +1948,25 @@ function render() {
         }
     }
 
+    // Render Creepers before transparent water so water blends over them
+    for (let i = creepers.length - 1; i >= 0; i--) {
+        const alive = updateCreeper(creepers[i], dt);
+        if (!alive) {
+            creepers.splice(i, 1);
+            creeperSpawnQueue.push(performance.now() + CREEPER_SPAWN_DELAY * 1000);
+            continue;
+        }
+        const dxp = camera.x - creepers[i].x;
+        const dzp = camera.z - creepers[i].z;
+        if (sqrt(dxp*dxp + dzp*dzp) < 120) {
+            renderCreeper(creepers[i], proj, view);
+        }
+    }
+
     // Pass 2: Transparent water geometry with blending
+    gl.useProgram(prog);
+    gl.uniformMatrix4fv(uProj, false, proj);
+    gl.uniformMatrix4fv(uView, false, view);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthMask(false);
@@ -1984,21 +2002,6 @@ function render() {
         gl.vertexAttribPointer(hlAPos, 3, gl.FLOAT, false, 0, 0);
 
         gl.drawArrays(gl.LINES, 0, hlVerts.length / 3);
-    }
-
-    // Update and render Creepers
-    for (let i = creepers.length - 1; i >= 0; i--) {
-        const alive = updateCreeper(creepers[i], dt);
-        if (!alive) {
-            creepers.splice(i, 1);
-            creeperSpawnQueue.push(performance.now() + CREEPER_SPAWN_DELAY * 1000);
-            continue;
-        }
-        const dxp = camera.x - creepers[i].x;
-        const dzp = camera.z - creepers[i].z;
-        if (sqrt(dxp*dxp + dzp*dzp) < 120) {
-            renderCreeper(creepers[i], proj, view);
-        }
     }
 
     // Process pending creeper spawns
