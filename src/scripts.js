@@ -1072,11 +1072,13 @@ const crVS = `
     uniform mat4 uModel;
     varying vec3 vNorm;
     varying float vDist;
+    varying float vWorldY;
     void main() {
         vec4 worldPos = uModel * vec4(aPos, 1.0);
         gl_Position = uProj * uView * worldPos;
         vNorm = mat3(uModel) * aNorm;
         vDist = length((uView * worldPos).xyz);
+        vWorldY = worldPos.y;
     }
 `;
 
@@ -1084,12 +1086,18 @@ const crFS = `
     precision mediump float;
     varying vec3 vNorm;
     varying float vDist;
+    varying float vWorldY;
     uniform vec3 uColor;
+    uniform float uWaterSurface;
     void main() {
         vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
         float diff = max(dot(normalize(vNorm), lightDir), 0.0);
         float ambient = 0.45;
         vec3 color = uColor * (ambient + diff * 0.55);
+        if (uWaterSurface > -100.0 && vWorldY < uWaterSurface) {
+            float submerge = clamp((uWaterSurface - vWorldY) / 0.6, 0.0, 1.0);
+            color = mix(color, vec3(0.12, 0.35, 0.6), submerge * 0.45);
+        }
         float fog = clamp((vDist - 30.0) / 60.0, 0.0, 1.0);
         vec3 fogColor = vec3(0.55, 0.72, 0.9);
         color = mix(color, fogColor, fog);
@@ -1108,6 +1116,7 @@ const crUProj = gl.getUniformLocation(crProg, 'uProj');
 const crUView = gl.getUniformLocation(crProg, 'uView');
 const crUModel = gl.getUniformLocation(crProg, 'uModel');
 const crUColor = gl.getUniformLocation(crProg, 'uColor');
+const crUWaterSurface = gl.getUniformLocation(crProg, 'uWaterSurface');
 
 // Build a box mesh: 6 faces, each 2 triangles
 function buildBoxMesh() {
@@ -1288,23 +1297,26 @@ function updateCreeper(c, dt) {
     const cInWater = getBlock(floor(c.x), floor(c.y + 0.5), floor(c.z)) === BLOCK.WATER;
 
     if (cInWater && c.state !== 'explode' && c.state !== 'fading') {
-        // Bob on water surface
+        // Float partially submerged: feet below surface so ~half body visible
         const waterSurfaceY = floor(c.y) + 1;
-        c.y += (waterSurfaceY - c.y) * 0.1;
-        c.vy = sin(performance.now() * 0.003 + c.x * 7) * 0.005;
+        const targetY = waterSurfaceY - 0.85 + sin(performance.now() * 0.002 + c.x * 3) * 0.06;
+        c.y += (targetY - c.y) * 0.1;
+        c.vy = 0;
         c.grounded = false;
 
-        // Reduced horizontal movement in water
-        const waterSpd = walkSpeed * 0.4 * dt;
-        if (!creeperCollides(c.x + moveX * waterSpd, c.y, c.z, hw, ph)) {
+        // Reduced horizontal movement in water (70% slower)
+        const waterSpd = walkSpeed * 0.3 * dt;
+        // Check collisions at mid-body and head height to avoid ground below water
+        const checkY = c.y + 0.6;
+        if (!creeperCollides(c.x + moveX * waterSpd, checkY, c.z, hw, ph)) {
             c.x += moveX * waterSpd;
-            c.vx = moveX * walkSpeed * 0.4;
+            c.vx = moveX * walkSpeed * 0.3;
         } else {
             c.vx = 0;
         }
-        if (!creeperCollides(c.x, c.y, c.z + moveZ * waterSpd, hw, ph)) {
+        if (!creeperCollides(c.x, checkY, c.z + moveZ * waterSpd, hw, ph)) {
             c.z += moveZ * waterSpd;
-            c.vz = moveZ * walkSpeed * 0.4;
+            c.vz = moveZ * walkSpeed * 0.3;
         } else {
             c.vz = 0;
         }
@@ -1406,6 +1418,8 @@ function renderCreeper(c, proj, view) {
     gl.useProgram(crProg);
     gl.uniformMatrix4fv(crUProj, false, proj);
     gl.uniformMatrix4fv(crUView, false, view);
+    const inWater = getBlock(floor(c.x), floor(c.y + 0.5), floor(c.z)) === BLOCK.WATER;
+    gl.uniform1f(crUWaterSurface, inWater ? (floor(c.y) + 1.0) : -200.0);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, crPosBuf);
     gl.enableVertexAttribArray(crAPos);
@@ -1920,6 +1934,7 @@ function render() {
     // Pass 2: Transparent water geometry with blending
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.depthMask(false);
     for (let dx = -chunkRange; dx <= chunkRange; dx++) {
         for (let dz = -chunkRange; dz <= chunkRange; dz++) {
             const cx = pcx + dx, cz = pcz + dz;
@@ -1933,6 +1948,7 @@ function render() {
             gl.drawArrays(gl.TRIANGLES, 0, chunk.wVertCount);
         }
     }
+    gl.depthMask(true);
     gl.disable(gl.BLEND);
 
     const dir = getCameraDir();
