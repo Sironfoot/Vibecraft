@@ -1249,7 +1249,11 @@ function updateCreeper(c, dt) {
         c.yaw = Math.atan2(moveX, moveZ);
     }
 
-    const spd = walkSpeed * dt;
+    // Check if creeper is in water (affects speed for all movement)
+    const cInWater = getBlock(floor(c.x), floor(c.y + 0.5), floor(c.z)) === BLOCK.WATER;
+    const spdFactor = cInWater ? 0.5 : 1;
+
+    const spd = walkSpeed * spdFactor * dt;
     let nx = c.x + moveX * spd;
     let nz = c.z + moveZ * spd;
 
@@ -1293,47 +1297,60 @@ function updateCreeper(c, dt) {
         c.vy = 0;
     }
 
-    // Check if creeper is in water
-    const cInWater = getBlock(floor(c.x), floor(c.y + 0.5), floor(c.z)) === BLOCK.WATER;
-
+    // Check if creeper is in water — apply floating behavior when fully surrounded
     if (cInWater && c.state !== 'explode' && c.state !== 'fading') {
-        // Float partially submerged: feet below surface so ~half body visible
-        const waterSurfaceY = floor(c.y) + 1;
-        const targetY = waterSurfaceY - 0.85 + sin(performance.now() * 0.002 + c.x * 3) * 0.06;
-        c.y += (targetY - c.y) * 0.1;
-        c.vy = 0;
-        c.grounded = false;
-
-        // Reduced horizontal movement in water (70% slower)
-        const waterSpd = walkSpeed * 0.3 * dt;
-        // Check collisions at mid-body and head height to avoid ground below water
-        const checkY = c.y + 0.6;
-        if (!creeperCollides(c.x + moveX * waterSpd, checkY, c.z, hw, ph)) {
-            c.x += moveX * waterSpd;
-            c.vx = moveX * walkSpeed * 0.3;
-        } else {
-            c.vx = 0;
-        }
-        if (!creeperCollides(c.x, checkY, c.z + moveZ * waterSpd, hw, ph)) {
-            c.z += moveZ * waterSpd;
-            c.vz = moveZ * walkSpeed * 0.3;
-        } else {
-            c.vz = 0;
+        // Check if there's solid ground adjacent at or above water level to exit water
+        const waterBlockY = floor(c.y);
+        let canExit = false;
+        for (let ey = waterBlockY - 1; ey <= waterBlockY + 2; ey++) {
+            if (!isSolid(c.x + moveX, ey, c.z) && getBlock(floor(c.x + moveX), ey, floor(c.z)) !== BLOCK.WATER) {
+                canExit = true; break;
+            }
+            if (!isSolid(c.x, ey, c.z + moveZ) && getBlock(floor(c.x), ey, floor(c.z + moveZ)) !== BLOCK.WATER) {
+                canExit = true; break;
+            }
         }
 
-        if (dist < EXPLODE_DIST && c.state === 'chase' && abs(camera.y - c.y) < 2) {
-            c.state = 'explode';
-            c.explodeTimer = 1.5;
+        if (canExit) {
+            // Use normal movement to exit water — skip floating behavior below
+        } else {
+            // Float partially submerged: feet below surface so ~half body visible
+            const waterSurfaceY = floor(c.y) + 1;
+            const targetY = waterSurfaceY - 0.85 + sin(performance.now() * 0.002 + c.x * 3) * 0.06;
+            c.y += (targetY - c.y) * 0.1;
             c.vy = 0;
-            c.vx = 0;
-            c.vz = 0;
-            startCreeperSizzle(c);
-        }
+            c.grounded = false;
 
-        if (c.y < -10) {
-            return false;
+            // Reduced horizontal movement in water — check at mid-body to avoid ground below
+            const waterSpd = walkSpeed * spdFactor * dt;
+            const checkY = c.y + 0.6;
+            if (!creeperCollides(c.x + moveX * waterSpd, checkY, c.z, hw, ph)) {
+                c.x += moveX * waterSpd;
+                c.vx = moveX * walkSpeed * spdFactor;
+            } else {
+                c.vx = 0;
+            }
+            if (!creeperCollides(c.x, checkY, c.z + moveZ * waterSpd, hw, ph)) {
+                c.z += moveZ * waterSpd;
+                c.vz = moveZ * walkSpeed * spdFactor;
+            } else {
+                c.vz = 0;
+            }
+
+            if (dist < EXPLODE_DIST && c.state === 'chase' && abs(camera.y - c.y) < 2) {
+                c.state = 'explode';
+                c.explodeTimer = 1.5;
+                c.vy = 0;
+                c.vx = 0;
+                c.vz = 0;
+                startCreeperSizzle(c);
+            }
+
+            if (c.y < -10) {
+                return false;
+            }
+            return true;
         }
-        return true;
     }
 
     if (dist < EXPLODE_DIST && c.state === 'chase' && abs(camera.y - c.y) < 2) {
