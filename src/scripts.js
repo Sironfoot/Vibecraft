@@ -731,8 +731,10 @@ function terrainHeight(x, z) {
     return floor(h) + 6 + BEDROCK_OFFSET;
 }
 
+const WORLD_RADIUS = 128;
+
 function generateWorld() {
-    const radius = 128;
+    const radius = WORLD_RADIUS;
     for (let x = -radius; x < radius; x++) {
         for (let z = -radius; z < radius; z++) {
             const h = terrainHeight(x, z);
@@ -744,25 +746,7 @@ function generateWorld() {
             }
         }
     }
-    for (let i = 0; i < 120; i++) {
-        const tx = floor((hash2D(i * 7, 0) - 0.5) * radius * 1.5);
-        const tz = floor((hash2D(i * 13, 0) - 0.5) * radius * 1.5);
-        if (tx * tx + tz * tz < 36) continue;
-        const th = terrainHeight(tx, tz);
-        if (th > 8 + BEDROCK_OFFSET && th < 16 + BEDROCK_OFFSET) {
-            const treeH = 4 + floor(hash2D(tx, tz) * 3);
-            for (let y = th + 1; y <= th + treeH; y++) setBlock(tx, y, tz, BLOCK.WOOD);
-            for (let lx = -2; lx <= 2; lx++) {
-                for (let lz = -2; lz <= 2; lz++) {
-                    for (let ly = th + treeH - 1; ly <= th + treeH + 2; ly++) {
-                        if (lx === 0 && lz === 0 && ly <= th + treeH) continue;
-                        if (abs(lx) === 2 && abs(lz) === 2 && hash2D(lx + i, lz) > 0.5) continue;
-                        setBlock(tx + lx, ly, tz + lz, BLOCK.LEAVES);
-                    }
-                }
-            }
-        }
-    }
+
 }
 
 function generateLakes() {
@@ -835,6 +819,34 @@ function addGrassByWater() {
                     const nx = x + dx, nz = z + dz;
                     if (getBlock(nx, y, nz) === BLOCK.AIR) {
                         setBlock(nx, y, nz, BLOCK.GRASS);
+                    }
+                }
+            }
+        }
+    }
+}
+
+const TREE_DENSITY_PER_100 = 0.2; // trees per 100 square blocks
+
+function generateTrees() {
+    const radius = WORLD_RADIUS;
+    const worldArea = (radius * 2) * (radius * 2);
+    const treeCount = floor((worldArea / 100) * TREE_DENSITY_PER_100);
+    for (let i = 0; i < treeCount; i++) {
+        const tx = floor((hash2D(i * 7 + 1, i * 3) - 0.5) * radius * 2);
+        const tz = floor((hash2D(i * 13 + 5, i * 11) - 0.5) * radius * 2);
+        if (tx < -radius + 1 || tx >= radius || tz < -radius + 1 || tz >= radius) continue;
+        if (tx * tx + tz * tz < 36) continue;
+        const th = terrainHeight(tx, tz);
+        if (th > BEDROCK_OFFSET && getBlock(tx, th, tz) === BLOCK.GRASS) {
+            const treeH = 4 + floor(hash2D(tx, tz) * 3);
+            for (let y = th + 1; y <= th + treeH; y++) setBlock(tx, y, tz, BLOCK.WOOD);
+            for (let lx = -2; lx <= 2; lx++) {
+                for (let lz = -2; lz <= 2; lz++) {
+                    for (let ly = th + treeH - 1; ly <= th + treeH + 2; ly++) {
+                        if (lx === 0 && lz === 0 && ly <= th + treeH) continue;
+                        if (abs(lx) === 2 && abs(lz) === 2 && hash2D(lx + i, lz) > 0.5) continue;
+                        setBlock(tx + lx, ly, tz + lz, BLOCK.LEAVES);
                     }
                 }
             }
@@ -2322,6 +2334,7 @@ uploadAtlas();
 generateWorld();
 generateLakes();
 addGrassByWater();
+generateTrees();
 generateTallGrass();
 generateClouds();
 buildCloudMesh();
