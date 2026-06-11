@@ -644,9 +644,11 @@ function setBlock(x, y, z, type) {
     if (lz === CHUNK_SIZE - 1) getChunkRef(cx, cz + 1).dirty = true;
 }
 
+let worldSeed = Math.floor(Math.random() * 0x7fffffff);
+
 // Simple noise for terrain generation
 function hash2D(x, z) {
-    let n = x * 374761393 + z * 668265263;
+    let n = x * 374761393 + z * 668265263 + worldSeed;
     n = (n ^ (n >> 13)) * 1274126177;
     return ((n ^ (n >> 16)) & 0x7fffffff) / 0x7fffffff;
 }
@@ -686,6 +688,7 @@ function generateWorld() {
     for (let i = 0; i < 120; i++) {
         const tx = floor((hash2D(i * 7, 0) - 0.5) * radius * 1.5);
         const tz = floor((hash2D(i * 13, 0) - 0.5) * radius * 1.5);
+        if (tx * tx + tz * tz < 36) continue;
         const th = terrainHeight(tx, tz);
         if (th > 8 && th < 16) {
             const treeH = 4 + floor(hash2D(tx, tz) * 3);
