@@ -733,6 +733,13 @@ function terrainHeight(x, z) {
 
 const WORLD_RADIUS = 128;
 
+// Sun orbit settings
+const SUN_ORBIT_DURATION_MS = 20 * 60 * 1000; // 20 minutes per full orbit
+const SUN_ORBIT_RADIUS = WORLD_RADIUS + 60; // 178 blocks from center
+const SUN_ORBIT_TILT = PI * 0.5; // tilt angle so sun rises and sets
+const SUN_CENTER_Y = 50 + BEDROCK_OFFSET; // center height of orbit
+let sunOrbitStart = performance.now() - 200000; // 200000 = ensure sun starts fairly high in the sky
+
 function generateWorld() {
     const radius = WORLD_RADIUS;
     for (let x = -radius; x < radius; x++) {
@@ -1089,14 +1096,14 @@ const fsSource = `
     uniform sampler2D uTex;
     uniform float uFogStart;
     uniform float uFogEnd;
+    uniform vec3 uLightDir;
     void main() {
         vec4 texColor = texture2D(uTex, vUV);
 
-        // Directional lighting
-        vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
-        float diff = max(dot(normalize(vNorm), lightDir), 0.0);
-        float ambient = 0.45;
-        vec3 color = texColor.rgb * (ambient + diff * 0.55);
+        // Directional lighting from sun
+        float diff = max(dot(normalize(vNorm), uLightDir), 0.0);
+        float ambient = max(0.15, uLightDir.y * 0.3 + 0.15);
+        vec3 color = texColor.rgb * (ambient + diff * 0.85);
 
         // Fog
         float fog = clamp((vDist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);
@@ -1132,6 +1139,7 @@ const uProj = gl.getUniformLocation(prog, 'uProj');
 const uView = gl.getUniformLocation(prog, 'uView');
 const uFogStart = gl.getUniformLocation(prog, 'uFogStart');
 const uFogEnd = gl.getUniformLocation(prog, 'uFogEnd');
+const uLightDir = gl.getUniformLocation(prog, 'uLightDir');
 
 gl.enable(gl.DEPTH_TEST);
 gl.enable(gl.POLYGON_OFFSET_FILL);
@@ -1305,11 +1313,11 @@ const crFS = `
     uniform float uWaterSurface;
     uniform float uFogStart;
     uniform float uFogEnd;
+    uniform vec3 uLightDir;
     void main() {
-        vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
-        float diff = max(dot(normalize(vNorm), lightDir), 0.0);
-        float ambient = 0.45;
-        vec3 color = uColor * (ambient + diff * 0.55);
+        float diff = max(dot(normalize(vNorm), uLightDir), 0.0);
+        float ambient = max(0.15, uLightDir.y * 0.3 + 0.15);
+        vec3 color = uColor * (ambient + diff * 0.85);
         if (uWaterSurface > -100.0 && vWorldY < uWaterSurface) {
             float submerge = clamp((uWaterSurface - vWorldY) / 0.6, 0.0, 1.0);
             color = mix(color, vec3(0.12, 0.35, 0.6), submerge * 0.45);
@@ -1335,6 +1343,7 @@ const crUColor = gl.getUniformLocation(crProg, 'uColor');
 const crUWaterSurface = gl.getUniformLocation(crProg, 'uWaterSurface');
 const crUFogStart = gl.getUniformLocation(crProg, 'uFogStart');
 const crUFogEnd = gl.getUniformLocation(crProg, 'uFogEnd');
+const crULightDir = gl.getUniformLocation(crProg, 'uLightDir');
 
 // ===================== CLOUD SHADER (horizontal fog only) =====================
 const clVS = `
@@ -1763,7 +1772,7 @@ function mat4RotateY(angle) {
     return new Float32Array([c,0,s,0, 0,1,0,0, -s,0,c,0, 0,0,0,1]);
 }
 
-function renderCreeper(c, proj, view) {
+function renderCreeper(c, proj, view, lightDir) {
     const CREEPER_GREEN = [0.15, 0.65, 0.15];
     const DARK_GREEN = [0.1, 0.45, 0.1];
 
@@ -1772,6 +1781,7 @@ function renderCreeper(c, proj, view) {
     gl.uniformMatrix4fv(crUView, false, view);
     gl.uniform1f(crUFogStart, RENDER_DIST * 0.375);
     gl.uniform1f(crUFogEnd, RENDER_DIST * 0.6875);
+    gl.uniform3f(crULightDir, lightDir[0], lightDir[1], lightDir[2]);
     const inWater = getBlock(floor(c.x), floor(c.y + 0.5), floor(c.z)) === BLOCK.WATER;
     gl.uniform1f(crUWaterSurface, inWater ? (floor(c.y) + 1.0) : -200.0);
 
@@ -2260,11 +2270,20 @@ function render() {
     // Rebuild any dirty chunks
     rebuildDirtyChunks();
 
+    // Compute sun position for lighting
+    const orbitAngle = ((performance.now() - sunOrbitStart) / SUN_ORBIT_DURATION_MS) * PI * 2;
+    const sunX = cos(orbitAngle) * SUN_ORBIT_RADIUS;
+    const sunZ = sin(orbitAngle) * SUN_ORBIT_RADIUS * cos(SUN_ORBIT_TILT);
+    const sunY = SUN_CENTER_Y + sin(orbitAngle) * SUN_ORBIT_RADIUS * sin(SUN_ORBIT_TILT);
+    const sunDist = sqrt(sunX*sunX + sunY*sunY + sunZ*sunZ);
+    const lightDir = [sunX/sunDist, sunY/sunDist, sunZ/sunDist];
+
     gl.useProgram(prog);
     gl.uniformMatrix4fv(uProj, false, proj);
     gl.uniformMatrix4fv(uView, false, view);
     gl.uniform1f(uFogStart, RENDER_DIST * 0.375);
     gl.uniform1f(uFogEnd, RENDER_DIST * 0.6875);
+    gl.uniform3f(uLightDir, lightDir[0], lightDir[1], lightDir[2]);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, tex);
 
@@ -2298,16 +2317,18 @@ function render() {
         const dxp = camera.x - creepers[i].x;
         const dzp = camera.z - creepers[i].z;
         if (sqrt(dxp*dxp + dzp*dzp) < 120) {
-            renderCreeper(creepers[i], proj, view);
+            renderCreeper(creepers[i], proj, view, lightDir);
         }
     }
 
     // Render sun (solid yellow sphere, no fog) - before transparent pass so clouds render in front
     {
-        const SUN_X = 0, SUN_Y = 250 + BEDROCK_OFFSET, SUN_Z = -100;
         const SUN_RADIUS = 16;
         const sunProj = mat4Perspective(PI / 3, canvas.width / canvas.height, 0.5, 1000);
-        const baseModel = mat4Translate(SUN_X, SUN_Y, SUN_Z);
+        const baseModel = mat4Translate(sunX, sunY, sunZ);
+
+        // Only render sun when above ground
+        if (sunY > BEDROCK_OFFSET) {
 
         // Glow layer (larger, semi-transparent)
         gl.enable(gl.BLEND);
@@ -2345,6 +2366,7 @@ function render() {
         gl.enableVertexAttribArray(sunAPos);
         gl.vertexAttribPointer(sunAPos, 3, gl.FLOAT, false, 0, 0);
         gl.drawArrays(gl.TRIANGLES, 0, boxMesh.pos.length / 3);
+        }
     }
 
     // Pass 2: Transparent water geometry with blending
@@ -2353,6 +2375,7 @@ function render() {
     gl.uniformMatrix4fv(uView, false, view);
     gl.uniform1f(uFogStart, RENDER_DIST * 0.375);
     gl.uniform1f(uFogEnd, RENDER_DIST * 0.6875);
+    gl.uniform3f(uLightDir, lightDir[0], lightDir[1], lightDir[2]);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthMask(false);
