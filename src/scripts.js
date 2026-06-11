@@ -535,6 +535,32 @@ function genWater() {
     return makeTexture(p);
 }
 
+function genTallGrass() {
+    const p = [];
+    for (let i = 0; i < 256; i++) p.push([0, 0, 0, 0]);
+    for (let b = 0; b < 5; b++) {
+        const bx = 2 + floor(Math.random() * 12);
+        const bh = 6 + floor(Math.random() * 8);
+        const bw = 1 + floor(Math.random() * 2);
+        for (let by = 0; by < bh; by++) {
+            const lean = sin(by * 0.5 + b) * min(by * 0.3, 1);
+            const px = floor(bx + lean);
+            for (let w = 0; w < bw; w++) {
+                const idx = px + w;
+                if (idx >= 0 && idx < TEX_SIZE) {
+                    const py = TEX_SIZE - 1 - by;
+                    if (py >= 0 && py < TEX_SIZE) {
+                        const i2 = py * TEX_SIZE + idx;
+                        const g = jitter(100 + by * 3, 25);
+                        p[i2] = [jitter(40, 12), min(255, g), jitter(25, 8), 230];
+                    }
+                }
+            }
+        }
+    }
+    return makeTexture(p);
+}
+
 // Build texture atlas: each block has up to 3 textures (top, side, bottom)
 // Layout in atlas: each tex is TEX_SIZE x TEX_SIZE, arranged in a grid
 const ATLAS_COLS = 8;
@@ -562,6 +588,8 @@ function initTextures() {
     TEXTURES[BLOCK.SAND]   = { top: sandTex, side: sandTex, bottom: sandTex };
     TEXTURES[BLOCK.WATER]  = { top: waterTex, side: waterTex, bottom: waterTex };
     TEXTURES[BLOCK.BEDROCK] = { top: bedrockTex, side: bedrockTex, bottom: bedrockTex };
+    const tallGrassTex = genTallGrass();
+    TEXTURES['tallgrass'] = { side: tallGrassTex };
 }
 
 // Collect unique textures and build atlas
@@ -575,13 +603,11 @@ function buildAtlas() {
     for (const btype in TEXTURES) {
         for (const face of ['top', 'side', 'bottom']) {
             const tex = TEXTURES[btype][face];
+            if (!tex) continue;
             const key = `${btype}_${face}`;
             if (!texIndexMap[key]) {
                 texIndexMap[key] = uniqueTextures.length;
                 uniqueTextures.push(tex);
-            }
-            else {
-                texIndexMap[key] = texIndexMap[key];
             }
         }
     }
@@ -608,6 +634,7 @@ function buildAtlas() {
         atlasTexMap[btype] = {};
         for (const face of ['top', 'side', 'bottom']) {
             const key = `${btype}_${face}`;
+            if (!(key in texIndexMap)) continue;
             const idx = texIndexMap[key];
             const col = idx % cols;
             const row = floor(idx / cols);
@@ -656,6 +683,10 @@ function setBlock(x, y, z, type) {
     const lx = localMod(x, CHUNK_SIZE), lz = localMod(z, CHUNK_SIZE);
     const idx = lx + lz * CHUNK_SIZE + y * CHUNK_AREA;
     if (chunk.data[idx] === type) return;
+    // Remove tall grass on this block if it's being destroyed or replaced
+    if (hasTallGrass(x, y, z)) removeTallGrass(x, y, z);
+    // Remove tall grass below if placing a solid block above it
+    if (type !== BLOCK.AIR && type !== BLOCK.WATER && hasTallGrass(x, y - 1, z)) removeTallGrass(x, y - 1, z);
     chunk.data[idx] = type;
     chunk.dirty = true;
     // Mark neighbor chunks dirty at boundaries for face culling
@@ -806,6 +837,36 @@ function addGrassByWater() {
     }
 }
 
+// ===================== TALL GRASS =====================
+const tallGrass = new Set();
+
+function hasTallGrass(x, y, z) {
+    return tallGrass.has(`${x},${y},${z}`);
+}
+
+function addTallGrass(x, y, z) {
+    tallGrass.add(`${x},${y},${z}`);
+}
+
+function removeTallGrass(x, y, z) {
+    tallGrass.delete(`${x},${y},${z}`);
+    const cx = floor(x / CHUNK_SIZE), cz = floor(z / CHUNK_SIZE);
+    getChunkRef(cx, cz).dirty = true;
+}
+
+function generateTallGrass() {
+    for (let x = -128; x < 128; x++) {
+        for (let z = -128; z < 128; z++) {
+            const h = terrainHeight(x, z);
+            if (getBlock(x, h, z) === BLOCK.GRASS && getBlock(x, h + 1, z) === BLOCK.AIR) {
+                if (hash2D(x * 31 + 7, z * 47 + 13) < 0.1) {
+                    addTallGrass(x, h, z);
+                }
+            }
+        }
+    }
+}
+
 // ===================== CHUNK MESH BUILDING =====================
 const FACE_DEFS = [
     { dir: [0, 1, 0], face: 'top', norm: [0,1,0] },
@@ -873,6 +934,28 @@ function buildChunkMesh(cx, cz) {
                     }
                     else {
                         uvArr.push(uv.u0,uv.v1, uv.u1,uv.v1, uv.u1,uv.v0, uv.u0,uv.v1, uv.u1,uv.v0, uv.u0,uv.v0);
+                    }
+                }
+
+                // Tall grass sprite on top of this block
+                if (hasTallGrass(wx, ly, wz) && getBlock(wx, ly + 1, wz) === BLOCK.AIR) {
+                    const tgUV = atlasTexMap['tallgrass'] && atlasTexMap['tallgrass']['side'];
+                    if (tgUV) {
+                        const cx2 = wx + 0.5, cz2 = wz + 0.5;
+                        const hw2 = 0.3, h2 = 0.5;
+                        const baseY = ly + 1;
+                        // Front face (normal +Z)
+                        trPos.push(cx2-hw2,baseY,cz2, cx2+hw2,baseY,cz2, cx2+hw2,baseY+h2,cz2);
+                        trPos.push(cx2-hw2,baseY,cz2, cx2+hw2,baseY+h2,cz2, cx2-hw2,baseY+h2,cz2);
+                        trNorm.push(0,0,1, 0,0,1, 0,0,1, 0,0,1, 0,0,1, 0,0,1);
+                        trUVs.push(tgUV.u0,tgUV.v1, tgUV.u1,tgUV.v1, tgUV.u1,tgUV.v0,
+                                   tgUV.u0,tgUV.v1, tgUV.u1,tgUV.v0, tgUV.u0,tgUV.v0);
+                        // Back face (normal -Z)
+                        trPos.push(cx2+hw2,baseY,cz2, cx2-hw2,baseY,cz2, cx2-hw2,baseY+h2,cz2);
+                        trPos.push(cx2+hw2,baseY,cz2, cx2-hw2,baseY+h2,cz2, cx2+hw2,baseY+h2,cz2);
+                        trNorm.push(0,0,-1, 0,0,-1, 0,0,-1, 0,0,-1, 0,0,-1, 0,0,-1);
+                        trUVs.push(tgUV.u0,tgUV.v1, tgUV.u1,tgUV.v1, tgUV.u1,tgUV.v0,
+                                   tgUV.u0,tgUV.v1, tgUV.u1,tgUV.v0, tgUV.u0,tgUV.v0);
                     }
                 }
             }
@@ -2072,6 +2155,7 @@ uploadAtlas();
 generateWorld();
 generateLakes();
 addGrassByWater();
+generateTallGrass();
 
 for (let i = 0; i < 20; i++) {
     const cx = (hash2D(i * 7 + 1, i * 13) - 0.5) * 256;
