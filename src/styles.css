@@ -137,3 +137,15 @@ canvas {
     line-height: 1.8;
     background: rgba(0, 0, 0, 0.5);
 }
+
+#underwaterOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 5;
+    pointer-events: none;
+    background: rgba(0, 40, 120, 0.35);
+    display: none;
+}

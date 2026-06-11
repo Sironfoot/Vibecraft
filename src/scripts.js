@@ -2159,6 +2159,9 @@ function render() {
     document.getElementById('creeperCount').innerHTML = 'Creepers: ' + creepers.length;
     updateHearts();
 
+    const inWater = isInWater(camera.x, camera.y + 1.4, camera.z);
+    document.getElementById('underwaterOverlay').style.display = inWater ? 'block' : 'none';
+
     requestAnimationFrame(render);
 }
 
