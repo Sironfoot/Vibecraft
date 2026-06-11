@@ -538,26 +538,21 @@ function genWater() {
 function genTallGrass() {
     const p = [];
     for (let i = 0; i < 256; i++) p.push([0, 0, 0, 0]);
-    for (let b = 0; b < 5; b++) {
-        const bx = 2 + floor(Math.random() * 12);
-        const bh = 6 + floor(Math.random() * 8);
-        const bw = 1 + floor(Math.random() * 2);
-        for (let by = 0; by < bh; by++) {
-            const lean = sin(by * 0.5 + b) * min(by * 0.3, 1);
-            const px = floor(bx + lean);
-            for (let w = 0; w < bw; w++) {
-                const idx = px + w;
-                if (idx >= 0 && idx < TEX_SIZE) {
-                    const py = TEX_SIZE - 1 - by;
-                    if (py >= 0 && py < TEX_SIZE) {
-                        const i2 = py * TEX_SIZE + idx;
-                        const g = jitter(100 + by * 3, 25);
-                        p[i2] = [jitter(40, 12), min(255, g), jitter(25, 8), 230];
-                    }
-                }
-            }
-        }
-    }
+    // Blade 1: center-left, tall, leans right (grows from bottom)
+    const b1 = [[7,15],[7,14],[6,13],[6,12],[5,11],[5,10],[5,9]];
+    for (const [x,y] of b1) { const i2 = y*16+x; p[i2]=[45,130,30,230]; }
+    // Blade 2: center-right, medium, leans left
+    const b2 = [[9,15],[8,14],[8,13],[7,12],[7,11],[7,10]];
+    for (const [x,y] of b2) { const i2 = y*16+x; p[i2]=[50,140,35,230]; }
+    // Blade 3: far left, short
+    const b3 = [[4,15],[4,14],[3,13],[3,12]];
+    for (const [x,y] of b3) { const i2 = y*16+x; p[i2]=[40,120,25,230]; }
+    // Blade 4: far right, medium-tall
+    const b4 = [[12,15],[12,14],[13,13],[13,12],[14,11],[14,10],[14,9]];
+    for (const [x,y] of b4) { const i2 = y*16+x; p[i2]=[55,135,28,230]; }
+    // Blade 5: center, shortest
+    const b5 = [[8,15],[8,14]];
+    for (const [x,y] of b5) { const i2 = y*16+x; p[i2]=[48,125,32,230]; }
     return makeTexture(p);
 }
 
@@ -839,6 +834,7 @@ function addGrassByWater() {
 
 // ===================== TALL GRASS =====================
 const tallGrass = new Set();
+const TALL_GRASS_CHANCE = 20; // percentage chance of appearing on surface grass
 
 function hasTallGrass(x, y, z) {
     return tallGrass.has(`${x},${y},${z}`);
@@ -859,7 +855,7 @@ function generateTallGrass() {
         for (let z = -128; z < 128; z++) {
             const h = terrainHeight(x, z);
             if (getBlock(x, h, z) === BLOCK.GRASS && getBlock(x, h + 1, z) === BLOCK.AIR) {
-                if (hash2D(x * 31 + 7, z * 47 + 13) < 0.1) {
+                if (hash2D(x * 31 + 7, z * 47 + 13) < TALL_GRASS_CHANCE / 100) {
                     addTallGrass(x, h, z);
                 }
             }
@@ -942,20 +938,36 @@ function buildChunkMesh(cx, cz) {
                     const tgUV = atlasTexMap['tallgrass'] && atlasTexMap['tallgrass']['side'];
                     if (tgUV) {
                         const cx2 = wx + 0.5, cz2 = wz + 0.5;
-                        const hw2 = 0.3, h2 = 0.5;
+                        const hw2 = 0.3, h2 = 0.65;
                         const baseY = ly + 1;
-                        // Front face (normal +Z)
-                        trPos.push(cx2-hw2,baseY,cz2, cx2+hw2,baseY,cz2, cx2+hw2,baseY+h2,cz2);
-                        trPos.push(cx2-hw2,baseY,cz2, cx2+hw2,baseY+h2,cz2, cx2-hw2,baseY+h2,cz2);
-                        trNorm.push(0,0,1, 0,0,1, 0,0,1, 0,0,1, 0,0,1, 0,0,1);
-                        trUVs.push(tgUV.u0,tgUV.v1, tgUV.u1,tgUV.v1, tgUV.u1,tgUV.v0,
-                                   tgUV.u0,tgUV.v1, tgUV.u1,tgUV.v0, tgUV.u0,tgUV.v0);
-                        // Back face (normal -Z)
-                        trPos.push(cx2+hw2,baseY,cz2, cx2-hw2,baseY,cz2, cx2-hw2,baseY+h2,cz2);
-                        trPos.push(cx2+hw2,baseY,cz2, cx2-hw2,baseY+h2,cz2, cx2+hw2,baseY+h2,cz2);
-                        trNorm.push(0,0,-1, 0,0,-1, 0,0,-1, 0,0,-1, 0,0,-1, 0,0,-1);
-                        trUVs.push(tgUV.u0,tgUV.v1, tgUV.u1,tgUV.v1, tgUV.u1,tgUV.v0,
-                                   tgUV.u0,tgUV.v1, tgUV.u1,tgUV.v0, tgUV.u0,tgUV.v0);
+                        const alongZ = hash2D(wx * 37, wz * 53) > 0.5;
+                        if (alongZ) {
+                            // Front face (normal +Z)
+                            trPos.push(cx2-hw2,baseY,cz2, cx2+hw2,baseY,cz2, cx2+hw2,baseY+h2,cz2);
+                            trPos.push(cx2-hw2,baseY,cz2, cx2+hw2,baseY+h2,cz2, cx2-hw2,baseY+h2,cz2);
+                            trNorm.push(0,0,1, 0,0,1, 0,0,1, 0,0,1, 0,0,1, 0,0,1);
+                            trUVs.push(tgUV.u0,tgUV.v1, tgUV.u1,tgUV.v1, tgUV.u1,tgUV.v0,
+                                       tgUV.u0,tgUV.v1, tgUV.u1,tgUV.v0, tgUV.u0,tgUV.v0);
+                            // Back face (normal -Z)
+                            trPos.push(cx2+hw2,baseY,cz2, cx2-hw2,baseY,cz2, cx2-hw2,baseY+h2,cz2);
+                            trPos.push(cx2+hw2,baseY,cz2, cx2-hw2,baseY+h2,cz2, cx2+hw2,baseY+h2,cz2);
+                            trNorm.push(0,0,-1, 0,0,-1, 0,0,-1, 0,0,-1, 0,0,-1, 0,0,-1);
+                            trUVs.push(tgUV.u0,tgUV.v1, tgUV.u1,tgUV.v1, tgUV.u1,tgUV.v0,
+                                       tgUV.u0,tgUV.v1, tgUV.u1,tgUV.v0, tgUV.u0,tgUV.v0);
+                        } else {
+                            // Right face (normal +X)
+                            trPos.push(cx2,baseY,cz2-hw2, cx2,baseY,cz2+hw2, cx2,baseY+h2,cz2+hw2);
+                            trPos.push(cx2,baseY,cz2-hw2, cx2,baseY+h2,cz2+hw2, cx2,baseY+h2,cz2-hw2);
+                            trNorm.push(1,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0);
+                            trUVs.push(tgUV.u0,tgUV.v1, tgUV.u1,tgUV.v1, tgUV.u1,tgUV.v0,
+                                       tgUV.u0,tgUV.v1, tgUV.u1,tgUV.v0, tgUV.u0,tgUV.v0);
+                            // Left face (normal -X)
+                            trPos.push(cx2,baseY,cz2+hw2, cx2,baseY,cz2-hw2, cx2,baseY+h2,cz2-hw2);
+                            trPos.push(cx2,baseY,cz2+hw2, cx2,baseY+h2,cz2-hw2, cx2,baseY+h2,cz2+hw2);
+                            trNorm.push(-1,0,0, -1,0,0, -1,0,0, -1,0,0, -1,0,0, -1,0,0);
+                            trUVs.push(tgUV.u0,tgUV.v1, tgUV.u1,tgUV.v1, tgUV.u1,tgUV.v0,
+                                       tgUV.u0,tgUV.v1, tgUV.u1,tgUV.v0, tgUV.u0,tgUV.v0);
+                        }
                     }
                 }
             }
