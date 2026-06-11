@@ -1393,6 +1393,66 @@ const clUView = gl.getUniformLocation(clProg, 'uView');
 const clUFogStart = gl.getUniformLocation(clProg, 'uFogStart');
 const clUFogEnd = gl.getUniformLocation(clProg, 'uFogEnd');
 
+// ===================== SUN SHADER (unlit solid color) =====================
+const sunVS = `
+    attribute vec3 aPos;
+    uniform mat4 uProj;
+    uniform mat4 uView;
+    uniform mat4 uModel;
+    void main() {
+        gl_Position = uProj * uView * uModel * vec4(aPos, 1.0);
+    }
+`;
+
+const sunFS = `
+    precision mediump float;
+    uniform vec3 uColor;
+    void main() {
+        gl_FragColor = vec4(uColor, 1.0);
+    }
+`;
+
+const sunProg = gl.createProgram();
+gl.attachShader(sunProg, compileShader(sunVS, gl.VERTEX_SHADER));
+gl.attachShader(sunProg, compileShader(sunFS, gl.FRAGMENT_SHADER));
+gl.linkProgram(sunProg);
+
+const sunAPos = gl.getAttribLocation(sunProg, 'aPos');
+const sunUProj = gl.getUniformLocation(sunProg, 'uProj');
+const sunUView = gl.getUniformLocation(sunProg, 'uView');
+const sunUModel = gl.getUniformLocation(sunProg, 'uModel');
+const sunUColor = gl.getUniformLocation(sunProg, 'uColor');
+
+// ===================== SUN GLOW SHADER (unlit with alpha) =====================
+const glowVS = `
+    attribute vec3 aPos;
+    uniform mat4 uProj;
+    uniform mat4 uView;
+    uniform mat4 uModel;
+    void main() {
+        gl_Position = uProj * uView * uModel * vec4(aPos, 1.0);
+    }
+`;
+
+const glowFS = `
+    precision mediump float;
+    uniform vec4 uColor;
+    void main() {
+        gl_FragColor = uColor;
+    }
+`;
+
+const glowProg = gl.createProgram();
+gl.attachShader(glowProg, compileShader(glowVS, gl.VERTEX_SHADER));
+gl.attachShader(glowProg, compileShader(glowFS, gl.FRAGMENT_SHADER));
+gl.linkProgram(glowProg);
+
+const glowAPos = gl.getAttribLocation(glowProg, 'aPos');
+const glowUProj = gl.getUniformLocation(glowProg, 'uProj');
+const glowUView = gl.getUniformLocation(glowProg, 'uView');
+const glowUModel = gl.getUniformLocation(glowProg, 'uModel');
+const glowUColor = gl.getUniformLocation(glowProg, 'uColor');
+
 // Build a box mesh: 6 faces, each 2 triangles
 function buildBoxMesh() {
     const pos = [], norm = [];
@@ -2240,6 +2300,51 @@ function render() {
         if (sqrt(dxp*dxp + dzp*dzp) < 120) {
             renderCreeper(creepers[i], proj, view);
         }
+    }
+
+    // Render sun (solid yellow sphere, no fog) - before transparent pass so clouds render in front
+    {
+        const SUN_X = 0, SUN_Y = 250 + BEDROCK_OFFSET, SUN_Z = -100;
+        const SUN_RADIUS = 16;
+        const sunProj = mat4Perspective(PI / 3, canvas.width / canvas.height, 0.5, 1000);
+        const baseModel = mat4Translate(SUN_X, SUN_Y, SUN_Z);
+
+        // Glow layer (larger, semi-transparent)
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.depthMask(false);
+        gl.useProgram(glowProg);
+        gl.uniformMatrix4fv(glowUProj, false, sunProj);
+        gl.uniformMatrix4fv(glowUView, false, view);
+        gl.uniform4f(glowUColor, 1.0, 0.95, 0.3, 0.2);
+        {
+            const s = mat4Scale(SUN_RADIUS * 1.5, SUN_RADIUS * 1.5, SUN_RADIUS * 1.5);
+            const t = mat4Translate(-0.5, -0.5, -0.5);
+            const m = mat4Multiply(baseModel, mat4Multiply(s, t));
+            gl.uniformMatrix4fv(glowUModel, false, m);
+        }
+        gl.bindBuffer(gl.ARRAY_BUFFER, crPosBuf);
+        gl.enableVertexAttribArray(glowAPos);
+        gl.vertexAttribPointer(glowAPos, 3, gl.FLOAT, false, 0, 0);
+        gl.drawArrays(gl.TRIANGLES, 0, boxMesh.pos.length / 3);
+        gl.depthMask(true);
+        gl.disable(gl.BLEND);
+
+        // Solid sun core
+        gl.useProgram(sunProg);
+        gl.uniformMatrix4fv(sunUProj, false, sunProj);
+        gl.uniformMatrix4fv(sunUView, false, view);
+        gl.uniform3f(sunUColor, 1.0, 0.95, 0.2);
+        {
+            const s = mat4Scale(SUN_RADIUS, SUN_RADIUS, SUN_RADIUS);
+            const t = mat4Translate(-0.5, -0.5, -0.5);
+            const m = mat4Multiply(baseModel, mat4Multiply(s, t));
+            gl.uniformMatrix4fv(sunUModel, false, m);
+        }
+        gl.bindBuffer(gl.ARRAY_BUFFER, crPosBuf);
+        gl.enableVertexAttribArray(sunAPos);
+        gl.vertexAttribPointer(sunAPos, 3, gl.FLOAT, false, 0, 0);
+        gl.drawArrays(gl.TRIANGLES, 0, boxMesh.pos.length / 3);
     }
 
     // Pass 2: Transparent water geometry with blending
