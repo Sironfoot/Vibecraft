@@ -765,6 +765,24 @@ function generateLakes() {
     }
 }
 
+function addGrassByWater() {
+    const dirs = [[1,0,0], [-1,0,0], [0,0,1], [0,0,-1]];
+    for (let x = -128; x < 128; x++) {
+        for (let z = -128; z < 128; z++) {
+            for (let y = 0; y < WORLD_HEIGHT; y++) {
+                if (getBlock(x, y, z) !== BLOCK.WATER) continue;
+                for (let d = 0; d < dirs.length; d++) {
+                    const dx = dirs[d][0], dz = dirs[d][2];
+                    const nx = x + dx, nz = z + dz;
+                    if (getBlock(nx, y, nz) === BLOCK.AIR) {
+                        setBlock(nx, y, nz, BLOCK.GRASS);
+                    }
+                }
+            }
+        }
+    }
+}
+
 // ===================== CHUNK MESH BUILDING =====================
 const FACE_DEFS = [
     { dir: [0, 1, 0], face: 'top', norm: [0,1,0] },
@@ -2030,6 +2048,7 @@ buildAtlas();
 uploadAtlas();
 generateWorld();
 generateLakes();
+addGrassByWater();
 
 for (let i = 0; i < 20; i++) {
     const cx = (hash2D(i * 7 + 1, i * 13) - 0.5) * 256;
