@@ -897,7 +897,9 @@ function buildChunkMesh(cx, cz) {
                     const neighbor = getBlock(wx + f.dir[0], ly + f.dir[1], wz + f.dir[2]);
 
                     if (isWater) {
-                        if (neighbor !== BLOCK.AIR) continue;
+                        if (f.face === 'top' && neighbor !== BLOCK.WATER) {
+                            // Always render water top face unless covered by another water block
+                        } else if (neighbor !== BLOCK.AIR) continue;
                     } else {
                         if (neighbor !== BLOCK.AIR && neighbor !== BLOCK.WATER) continue;
                     }
