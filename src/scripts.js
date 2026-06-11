@@ -1018,6 +1018,8 @@ const fsSource = `
     varying vec2 vUV;
     varying float vDist;
     uniform sampler2D uTex;
+    uniform float uFogStart;
+    uniform float uFogEnd;
     void main() {
         vec4 texColor = texture2D(uTex, vUV);
 
@@ -1028,7 +1030,7 @@ const fsSource = `
         vec3 color = texColor.rgb * (ambient + diff * 0.55);
 
         // Fog
-        float fog = clamp((vDist - 30.0) / 60.0, 0.0, 1.0);
+        float fog = clamp((vDist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);
         vec3 fogColor = vec3(0.55, 0.72, 0.9);
         color = mix(color, fogColor, fog);
 
@@ -1059,6 +1061,8 @@ const aNorm = gl.getAttribLocation(prog, 'aNorm');
 const aUV = gl.getAttribLocation(prog, 'aUV');
 const uProj = gl.getUniformLocation(prog, 'uProj');
 const uView = gl.getUniformLocation(prog, 'uView');
+const uFogStart = gl.getUniformLocation(prog, 'uFogStart');
+const uFogEnd = gl.getUniformLocation(prog, 'uFogEnd');
 
 gl.enable(gl.DEPTH_TEST);
 gl.enable(gl.POLYGON_OFFSET_FILL);
@@ -1066,7 +1070,7 @@ gl.polygonOffset(-1, -1);
 gl.clearColor(0.55, 0.72, 0.9, 1);
 
 const tex = gl.createTexture();
-const RENDER_DIST = 80;
+const RENDER_DIST = 160;
 const RENDER_DIST_SQ = RENDER_DIST * RENDER_DIST;
 
 function uploadAtlas() {
@@ -1230,6 +1234,8 @@ const crFS = `
     varying float vWorldY;
     uniform vec3 uColor;
     uniform float uWaterSurface;
+    uniform float uFogStart;
+    uniform float uFogEnd;
     void main() {
         vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
         float diff = max(dot(normalize(vNorm), lightDir), 0.0);
@@ -1239,7 +1245,7 @@ const crFS = `
             float submerge = clamp((uWaterSurface - vWorldY) / 0.6, 0.0, 1.0);
             color = mix(color, vec3(0.12, 0.35, 0.6), submerge * 0.45);
         }
-        float fog = clamp((vDist - 30.0) / 60.0, 0.0, 1.0);
+        float fog = clamp((vDist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);
         vec3 fogColor = vec3(0.55, 0.72, 0.9);
         color = mix(color, fogColor, fog);
         gl_FragColor = vec4(color, 1.0);
@@ -1258,6 +1264,8 @@ const crUView = gl.getUniformLocation(crProg, 'uView');
 const crUModel = gl.getUniformLocation(crProg, 'uModel');
 const crUColor = gl.getUniformLocation(crProg, 'uColor');
 const crUWaterSurface = gl.getUniformLocation(crProg, 'uWaterSurface');
+const crUFogStart = gl.getUniformLocation(crProg, 'uFogStart');
+const crUFogEnd = gl.getUniformLocation(crProg, 'uFogEnd');
 
 // Build a box mesh: 6 faces, each 2 triangles
 function buildBoxMesh() {
@@ -1576,6 +1584,8 @@ function renderCreeper(c, proj, view) {
     gl.useProgram(crProg);
     gl.uniformMatrix4fv(crUProj, false, proj);
     gl.uniformMatrix4fv(crUView, false, view);
+    gl.uniform1f(crUFogStart, RENDER_DIST * 0.375);
+    gl.uniform1f(crUFogEnd, RENDER_DIST * 0.6875);
     const inWater = getBlock(floor(c.x), floor(c.y + 0.5), floor(c.z)) === BLOCK.WATER;
     gl.uniform1f(crUWaterSurface, inWater ? (floor(c.y) + 1.0) : -200.0);
 
@@ -2067,6 +2077,8 @@ function render() {
     gl.useProgram(prog);
     gl.uniformMatrix4fv(uProj, false, proj);
     gl.uniformMatrix4fv(uView, false, view);
+    gl.uniform1f(uFogStart, RENDER_DIST * 0.375);
+    gl.uniform1f(uFogEnd, RENDER_DIST * 0.6875);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, tex);
 
@@ -2108,6 +2120,8 @@ function render() {
     gl.useProgram(prog);
     gl.uniformMatrix4fv(uProj, false, proj);
     gl.uniformMatrix4fv(uView, false, view);
+    gl.uniform1f(uFogStart, RENDER_DIST * 0.375);
+    gl.uniform1f(uFogEnd, RENDER_DIST * 0.6875);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthMask(false);
