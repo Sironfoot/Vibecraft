@@ -41,13 +41,14 @@ function vec3Dot(a, b) { return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
 
 // ===================== BLOCK TYPES =====================
 const BLOCK = {
-    AIR: 0, GRASS: 1, DIRT: 2, STONE: 3, WOOD: 4, LEAVES: 5, SAND: 6, WATER: 7
+    AIR: 0, GRASS: 1, DIRT: 2, STONE: 3, WOOD: 4, LEAVES: 5, SAND: 6, WATER: 7, BEDROCK: 8
 };
 
 const BLOCK_NAMES = {
     [BLOCK.GRASS]: 'Grass', [BLOCK.DIRT]: 'Dirt', [BLOCK.STONE]: 'Stone',
     [BLOCK.WOOD]: 'Wood', [BLOCK.LEAVES]: 'Leaves', [BLOCK.SAND]: 'Sand',
-    [BLOCK.WATER]: 'Water'
+        [BLOCK.WATER]: 'Water',
+    [BLOCK.BEDROCK]: 'Bedrock'
 };
 
 const HOTBAR_BLOCKS = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.WOOD, BLOCK.LEAVES, BLOCK.SAND];
@@ -503,6 +504,23 @@ function genSand() {
     return makeTexture(p);
 }
 
+function genBedrock() {
+    const p = [];
+    for (let y = 0; y < TEX_SIZE; y++) {
+        for (let x = 0; x < TEX_SIZE; x++) {
+            let base = jitter(25, 15);
+            if ((x + y) % 5 === 0) base = jitter(15, 8);
+            if (x % 3 === 0 && y % 3 === 0) base = jitter(18, 6);
+            if ((x * 7 + y * 11) % 13 === 0) base = jitter(40, 10);
+            const r = base;
+            const g = base - 3;
+            const b = base - 6;
+            p.push([max(0, r), max(0, g), max(0, b)]);
+        }
+    }
+    return makeTexture(p);
+}
+
 function genWater() {
     const p = [];
     for (let y = 0; y < TEX_SIZE; y++) {
@@ -534,6 +552,7 @@ function initTextures() {
     const leavesTex = genLeaves();
     const sandTex = genSand();
     const waterTex = genWater();
+    const bedrockTex = genBedrock();
 
     TEXTURES[BLOCK.GRASS]  = { top: grassTop, side: grassSide, bottom: dirtTex };
     TEXTURES[BLOCK.DIRT]   = { top: dirtTex, side: dirtTex, bottom: dirtTex };
@@ -542,6 +561,7 @@ function initTextures() {
     TEXTURES[BLOCK.LEAVES] = { top: leavesTex, side: leavesTex, bottom: leavesTex };
     TEXTURES[BLOCK.SAND]   = { top: sandTex, side: sandTex, bottom: sandTex };
     TEXTURES[BLOCK.WATER]  = { top: waterTex, side: waterTex, bottom: waterTex };
+    TEXTURES[BLOCK.BEDROCK] = { top: bedrockTex, side: bedrockTex, bottom: bedrockTex };
 }
 
 // Collect unique textures and build atlas
@@ -602,7 +622,8 @@ function buildAtlas() {
 
 // ===================== WORLD DATA (chunk-based) =====================
 const CHUNK_SIZE = 16;
-const WORLD_HEIGHT = 40;
+const WORLD_HEIGHT = 256;
+const BEDROCK_OFFSET = 64;
 const CHUNK_AREA = CHUNK_SIZE * CHUNK_SIZE;
 const CHUNK_VOLUME = CHUNK_AREA * WORLD_HEIGHT;
 const chunks = {};
@@ -667,10 +688,11 @@ function smoothNoise(x, z) {
 
 function terrainHeight(x, z) {
     let h = 0;
+    h += smoothNoise(x * 0.008, z * 0.008) * 30;
     h += smoothNoise(x * 0.02, z * 0.02) * 12;
     h += smoothNoise(x * 0.05, z * 0.05) * 4;
     h += smoothNoise(x * 0.1, z * 0.1) * 2;
-    return floor(h) + 6;
+    return floor(h) + 6 + BEDROCK_OFFSET;
 }
 
 function generateWorld() {
@@ -678,8 +700,9 @@ function generateWorld() {
     for (let x = -radius; x < radius; x++) {
         for (let z = -radius; z < radius; z++) {
             const h = terrainHeight(x, z);
-            for (let y = 0; y <= h; y++) {
-                if (y === h) setBlock(x, y, z, BLOCK.GRASS);
+            for (let y = BEDROCK_OFFSET; y <= h; y++) {
+                if (y === BEDROCK_OFFSET) setBlock(x, y, z, BLOCK.BEDROCK);
+                else if (y === h) setBlock(x, y, z, BLOCK.GRASS);
                 else if (y > h - 4) setBlock(x, y, z, BLOCK.DIRT);
                 else setBlock(x, y, z, BLOCK.STONE);
             }
@@ -690,7 +713,7 @@ function generateWorld() {
         const tz = floor((hash2D(i * 13, 0) - 0.5) * radius * 1.5);
         if (tx * tx + tz * tz < 36) continue;
         const th = terrainHeight(tx, tz);
-        if (th > 8 && th < 16) {
+        if (th > 8 + BEDROCK_OFFSET && th < 16 + BEDROCK_OFFSET) {
             const treeH = 4 + floor(hash2D(tx, tz) * 3);
             for (let y = th + 1; y <= th + treeH; y++) setBlock(tx, y, tz, BLOCK.WOOD);
             for (let lx = -2; lx <= 2; lx++) {
@@ -707,7 +730,7 @@ function generateWorld() {
 }
 
 function generateLakes() {
-    const WATER_LEVEL = 7;
+    const WATER_LEVEL = 7 + BEDROCK_OFFSET;
     const SPAWN_SAFE_RADIUS = 15;
 
     for (let x = -128; x < 128; x++) {
@@ -750,7 +773,7 @@ function generateLakes() {
                 const wx = cx + dx, wz = cz + dz;
                 const terrainH = terrainHeight(wx, wz);
                 const depthFactor = 1 - dist / (radius + 1);
-                const lakeBottom = max(1, minTerrainH - floor(3 * depthFactor));
+                const lakeBottom = max(BEDROCK_OFFSET, minTerrainH - floor(3 * depthFactor));
 
                 for (let y = lakeBottom; y <= minTerrainH; y++) {
                     setBlock(wx, y, wz, BLOCK.WATER);
@@ -1429,7 +1452,7 @@ function creeperExplode(c) {
             for (let bz = floor(c.z - RADIUS); bz <= floor(c.z + RADIUS); bz++) {
                 const d = sqrt((bx+0.5-c.x)**2 + (by+0.5-c.y)**2 + (bz+0.5-c.z)**2);
                 const block = getBlock(bx, by, bz);
-                if (d < RADIUS && block !== BLOCK.AIR && block !== BLOCK.WATER) {
+                if (d < RADIUS && block !== BLOCK.AIR && block !== BLOCK.WATER && block !== BLOCK.BEDROCK) {
                     setBlock(bx, by, bz, BLOCK.AIR);
                     triggerWaterFlow(bx, by, bz);
                 }
@@ -1663,7 +1686,7 @@ canvas.addEventListener('mousedown', e => {
     if (result.hit) {
         const hitType = getBlock(result.blockX, result.blockY, result.blockZ);
         if (e.button === 0) {
-            if (hitType === BLOCK.WATER) return;
+            if (hitType === BLOCK.WATER || hitType === BLOCK.BEDROCK) return;
             const brokenX = result.blockX, brokenY = result.blockY, brokenZ = result.blockZ;
             setBlock(brokenX, brokenY, brokenZ, BLOCK.AIR);
             triggerWaterFlow(brokenX, brokenY, brokenZ);
