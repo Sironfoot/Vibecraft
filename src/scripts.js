@@ -535,6 +535,15 @@ function genWater() {
     return makeTexture(p);
 }
 
+function genCloud() {
+    const p = [];
+    for (let i = 0; i < 256; i++) {
+        const v = jitter(230, 10);
+        p.push([v, v, min(255, v + 10), 200]);
+    }
+    return makeTexture(p);
+}
+
 function genTallGrass() {
     const p = [];
     for (let i = 0; i < 256; i++) p.push([0, 0, 0, 0]);
@@ -585,6 +594,7 @@ function initTextures() {
     TEXTURES[BLOCK.BEDROCK] = { top: bedrockTex, side: bedrockTex, bottom: bedrockTex };
     const tallGrassTex = genTallGrass();
     TEXTURES['tallgrass'] = { side: tallGrassTex };
+    TEXTURES['cloud'] = { top: genCloud() };
 }
 
 // Collect unique textures and build atlas
@@ -861,6 +871,53 @@ function generateTallGrass() {
             }
         }
     }
+}
+
+// ===================== CLOUDS =====================
+const CLOUD_HEIGHT = 90 + BEDROCK_OFFSET;
+const CLOUD_RANGE = 288; // map radius (128) + render distance (160)
+let cloudPositions = [];
+
+function generateClouds() {
+    for (let x = -CLOUD_RANGE; x < CLOUD_RANGE; x++) {
+        for (let z = -CLOUD_RANGE; z < CLOUD_RANGE; z++) {
+            const n = smoothNoise(x * 0.02, z * 0.02) + smoothNoise(x * 0.05, z * 0.05) * 0.4;
+            if (n > 1.0) {
+                cloudPositions.push({ x, z });
+            }
+        }
+    }
+}
+
+let cloudPosBuf = null;
+let cloudNormBuf = null;
+let cloudUvBuf = null;
+let cloudVertCount = 0;
+
+function buildCloudMesh() {
+    const pos = [], norm = [], uvs = [];
+    const cloudUV = atlasTexMap['cloud'] && atlasTexMap['cloud']['top'];
+    if (!cloudUV) return;
+
+    for (const cp of cloudPositions) {
+        const y = CLOUD_HEIGHT;
+        pos.push(cp.x,y,cp.z, cp.x+1,y,cp.z, cp.x+1,y,cp.z+1);
+        pos.push(cp.x,y,cp.z, cp.x+1,y,cp.z+1, cp.x,y,cp.z+1);
+        for (let i = 0; i < 6; i++) norm.push(0,1,0);
+        uvs.push(cloudUV.u0,cloudUV.v1, cloudUV.u1,cloudUV.v1, cloudUV.u1,cloudUV.v0);
+        uvs.push(cloudUV.u0,cloudUV.v1, cloudUV.u1,cloudUV.v0, cloudUV.u0,cloudUV.v0);
+    }
+
+    cloudVertCount = pos.length / 3;
+    if (!cloudPosBuf) cloudPosBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, cloudPosBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pos), gl.STATIC_DRAW);
+    if (!cloudNormBuf) cloudNormBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, cloudNormBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(norm), gl.STATIC_DRAW);
+    if (!cloudUvBuf) cloudUvBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, cloudUvBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(uvs), gl.STATIC_DRAW);
 }
 
 // ===================== CHUNK MESH BUILDING =====================
@@ -1266,6 +1323,63 @@ const crUColor = gl.getUniformLocation(crProg, 'uColor');
 const crUWaterSurface = gl.getUniformLocation(crProg, 'uWaterSurface');
 const crUFogStart = gl.getUniformLocation(crProg, 'uFogStart');
 const crUFogEnd = gl.getUniformLocation(crProg, 'uFogEnd');
+
+// ===================== CLOUD SHADER (horizontal fog only) =====================
+const clVS = `
+    attribute vec3 aPos;
+    attribute vec3 aNorm;
+    attribute vec2 aUV;
+    uniform mat4 uProj;
+    uniform mat4 uView;
+    varying vec3 vNorm;
+    varying vec2 vUV;
+    varying float vHDist;
+    void main() {
+        vec4 worldPos = vec4(aPos, 1.0);
+        gl_Position = uProj * uView * worldPos;
+        vNorm = aNorm;
+        vUV = aUV;
+        vec4 viewPos = uView * worldPos;
+        vHDist = length(vec2(viewPos.x, viewPos.z));
+    }
+`;
+
+const clFS = `
+    precision mediump float;
+    varying vec3 vNorm;
+    varying vec2 vUV;
+    varying float vHDist;
+    uniform sampler2D uTex;
+    uniform float uFogStart;
+    uniform float uFogEnd;
+    void main() {
+        vec4 texColor = texture2D(uTex, vUV);
+
+        vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
+        float diff = max(dot(normalize(vNorm), lightDir), 0.0);
+        float ambient = 0.5;
+        vec3 color = texColor.rgb * (ambient + diff * 0.5);
+
+        float fog = clamp((vHDist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);
+        vec3 fogColor = vec3(0.55, 0.72, 0.9);
+        color = mix(color, fogColor, fog);
+
+        gl_FragColor = vec4(color, texColor.a * (1.0 - fog));
+    }
+`;
+
+const clProg = gl.createProgram();
+gl.attachShader(clProg, compileShader(clVS, gl.VERTEX_SHADER));
+gl.attachShader(clProg, compileShader(clFS, gl.FRAGMENT_SHADER));
+gl.linkProgram(clProg);
+
+const clAPos = gl.getAttribLocation(clProg, 'aPos');
+const clANorm = gl.getAttribLocation(clProg, 'aNorm');
+const clAUV = gl.getAttribLocation(clProg, 'aUV');
+const clUProj = gl.getUniformLocation(clProg, 'uProj');
+const clUView = gl.getUniformLocation(clProg, 'uView');
+const clUFogStart = gl.getUniformLocation(clProg, 'uFogStart');
+const clUFogEnd = gl.getUniformLocation(clProg, 'uFogEnd');
 
 // Build a box mesh: 6 faces, each 2 triangles
 function buildBoxMesh() {
@@ -2138,6 +2252,28 @@ function render() {
             gl.drawArrays(gl.TRIANGLES, 0, chunk.wVertCount);
         }
     }
+
+    // Render clouds (horizontal fog only)
+    if (cloudVertCount > 0) {
+        gl.useProgram(clProg);
+        gl.uniformMatrix4fv(clUProj, false, proj);
+        gl.uniformMatrix4fv(clUView, false, view);
+        gl.uniform1f(clUFogStart, RENDER_DIST * 0.75);
+        gl.uniform1f(clUFogEnd, RENDER_DIST * 1.375);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.bindBuffer(gl.ARRAY_BUFFER, cloudPosBuf);
+        gl.enableVertexAttribArray(clAPos);
+        gl.vertexAttribPointer(clAPos, 3, gl.FLOAT, false, 0, 0);
+        gl.bindBuffer(gl.ARRAY_BUFFER, cloudNormBuf);
+        gl.enableVertexAttribArray(clANorm);
+        gl.vertexAttribPointer(clANorm, 3, gl.FLOAT, false, 0, 0);
+        gl.bindBuffer(gl.ARRAY_BUFFER, cloudUvBuf);
+        gl.enableVertexAttribArray(clAUV);
+        gl.vertexAttribPointer(clAUV, 2, gl.FLOAT, false, 0, 0);
+        gl.drawArrays(gl.TRIANGLES, 0, cloudVertCount);
+    }
+    gl.useProgram(prog);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
 
@@ -2187,6 +2323,8 @@ generateWorld();
 generateLakes();
 addGrassByWater();
 generateTallGrass();
+generateClouds();
+buildCloudMesh();
 
 for (let i = 0; i < 20; i++) {
     const cx = (hash2D(i * 7 + 1, i * 13) - 0.5) * 256;
